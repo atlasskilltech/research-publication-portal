@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import BrandLogo, { AtlasCube } from "@/components/layout/BrandLogo";
@@ -12,13 +13,6 @@ const STAGES = [
   ["04", "Peer R2"],
   ["05", "Volume"],
 ];
-const SCHOOL_TAGS = [
-  ["ISDI", "bg-isdi"],
-  ["ISME", "bg-isme"],
-  ["uGDX", "bg-ugdx"],
-  ["LAW", "bg-law"],
-];
-
 export const metadata = { title: "Sign in — Research Publication Portal" };
 
 export default function LoginPage() {
@@ -52,12 +46,15 @@ export default function LoginPage() {
           </ol>
         </div>
 
-        <div className="relative z-10 flex items-center justify-between">
-          <div className="flex gap-1.5">
-            {SCHOOL_TAGS.map(([t, c]) => (
-              <span key={t} className={`rounded px-2 py-0.5 text-[10px] font-bold text-white ${c}`}>{t}</span>
-            ))}
-          </div>
+        <div className="relative z-10 flex items-center justify-between gap-4">
+          <Image
+            src="/brand/atlas-4-schools-horizontal.svg"
+            alt="ATLAS SkillTech University — ISDI, ISME, uGDX and Law"
+            width={1064}
+            height={111}
+            className="h-7 w-auto"
+            unoptimized
+          />
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">© {BRAND.university}</p>
         </div>
       </aside>

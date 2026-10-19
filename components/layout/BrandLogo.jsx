@@ -1,19 +1,22 @@
+import Image from "next/image";
 import { cn } from "@/lib/cn";
 import { BRAND } from "@/lib/constants";
 
 /**
- * AtlasCube — inline SVG recreation of the ATLAS isometric-cube mark.
- * Used in place of a raster asset so it stays crisp at every size.
+ * AtlasCube — the official ATLAS SkillTech University circle mark
+ * (public/brand/atlas-circle.svg, from https://atlasuniversity.edu.in/brand/).
+ * Served as-is (unoptimized) so the official vector stays crisp and unaltered.
  */
 export function AtlasCube({ size = 40, className = "" }) {
   return (
-    <svg viewBox="0 0 48 48" width={size} height={size} className={className} aria-hidden="true">
-      <polygon points="24,3 45,15 24,27 3,15" fill="#2fc3d6" />
-      <polygon points="3,15 24,27 24,47 3,35" fill="#3b2f86" />
-      <polygon points="45,15 24,27 24,47 45,35" fill="#2aa7bd" />
-      <polygon points="29,23 38,43 20,43" fill="#ffffff" />
-      <polygon points="29,30 33,40 25,40" fill="#2aa7bd" />
-    </svg>
+    <Image
+      src="/brand/atlas-circle.svg"
+      alt="ATLAS SkillTech University"
+      width={size}
+      height={size}
+      className={className}
+      unoptimized
+    />
   );
 }
 
