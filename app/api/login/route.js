@@ -25,8 +25,18 @@ export async function POST(request) {
   const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
   if (!ok) return invalid();
 
-  const { token } = await createSession(user.id);
-  const res = NextResponse.json({ ok: true });
-  res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_SECONDS));
-  return res;
+  // Credentials are valid. A failure beyond this point is an internal/database
+  // error (e.g. missing sessions table) — surface it as 500, never as 401.
+  try {
+    const { token } = await createSession(user.id);
+    const res = NextResponse.json({ ok: true });
+    res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_SECONDS));
+    return res;
+  } catch (e) {
+    console.error("login: session creation failed:", e?.code || e?.message);
+    return NextResponse.json(
+      { error: "Sign-in is temporarily unavailable. Please try again later." },
+      { status: 500 },
+    );
+  }
 }

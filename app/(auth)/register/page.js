@@ -49,7 +49,12 @@ export default function RegisterPage() {
         setLoading(false);
         return;
       }
-      // Registration already issued a session cookie — go straight in.
+      if (data.signedIn === false) {
+        // Account created, but auto sign-in was unavailable — sign in manually.
+        router.push("/login");
+        return;
+      }
+      // Registration issued a session cookie — go straight in.
       router.push("/dashboard");
       router.refresh();
     } catch {

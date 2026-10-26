@@ -57,9 +57,18 @@ export async function POST(request) {
     throw e;
   }
 
-  // Auto sign-in the new account by issuing a server session.
-  const { token } = await createSession(user.id);
-  const res = NextResponse.json({ ok: true }, { status: 201 });
+  // Auto sign-in the new account by issuing a server session. The account is
+  // already created; if session creation fails (e.g. missing sessions table),
+  // report success-without-sign-in rather than a misleading error.
+  let token;
+  try {
+    ({ token } = await createSession(user.id));
+  } catch (e) {
+    console.error("register: session creation failed:", e?.code || e?.message);
+    return NextResponse.json({ ok: true, signedIn: false }, { status: 201 });
+  }
+
+  const res = NextResponse.json({ ok: true, signedIn: true }, { status: 201 });
   res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_SECONDS));
   return res;
 }

@@ -25,11 +25,16 @@ export default function LoginForm() {
       body: JSON.stringify({ email: fd.get("email"), password: fd.get("password") }),
     });
     setLoading(false);
-    if (!res.ok) {
-      setError("Invalid email or password.");
-    } else {
+    if (res.ok) {
       router.push("/dashboard");
       router.refresh();
+      return;
+    }
+    if (res.status === 401) {
+      setError("Invalid email or password.");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Sign-in is temporarily unavailable. Please try again.");
     }
   }
 
