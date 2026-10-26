@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+/* ============================================================
+   ATLAS Research Publication Portal — design tokens (Tailwind v4)
+   Brand: ATLAS SkillTech University. Colours derived from the
+   supplied figma reference + logo assets.
+   ============================================================ */
+@theme {
+  /* brand */
+  --color-brand: #2e2a6b;
+  --color-brand-light: #403b8f;
+  --color-brand-dark: #221f52;
+  --color-brand-50: #eef0f8;
+  --color-brand-100: #e0e2f1;
+
+  --color-accent: #e91e8c;
+  --color-accent-soft: #fdeaf4;
+  --color-teal: #1fb6c9;
+
+  /* neutrals */
+  --color-ink: #1f2335;
+  --color-muted: #5b6176;
+  --color-line: #e3e6f0;
+  --color-soft: #f5f6fb;
+  --color-soft-2: #eceef6;
+  --color-canvas: #f7f8fc;
+
+  /* school sub-brands */
+  --color-isdi: #e91e8c;
+  --color-isme: #17a3dc;
+  --color-ugdx: #e5203e;
+  --color-law: #c7722a;
+
+  /* status */
+  --color-ok: #1a8f4c;
+  --color-ok-soft: #e4f4ea;
+  --color-warn: #b5820a;
+  --color-warn-soft: #fbf1d8;
+  --color-danger: #c62828;
+  --color-danger-soft: #fbe9e9;
+
+  /* typography */
+  --font-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+
+  /* radius */
+  --radius-xl: 14px;
+}
+
+/* ---- base ---- */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+* {
+  box-sizing: border-box;
+}
+
+/* focus-visible ring for keyboard users across interactive elements */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-light);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* thin, unobtrusive scrollbars */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 8px;
+}
+
+/* respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* utility: decorative orbit rings used on the login hero */
+.orbit {
+  position: absolute;
+  border-radius: 9999px;
+  border: 1px solid rgba(233, 30, 140, 0.18);
+}
