@@ -1,9 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
-import Input from "@/components/ui/Input";
-import Button from "@/components/ui/Button";
 import BrandLogo, { AtlasCube } from "@/components/layout/BrandLogo";
-import EnterAsList from "@/components/auth/EnterAsList";
+import LoginForm from "@/components/auth/LoginForm";
 import { BRAND } from "@/lib/constants";
 
 const STAGES = [
@@ -77,15 +75,7 @@ export default function LoginPage() {
           <h2 className="mt-1 font-display text-3xl font-bold text-ink">Back to the desk.</h2>
           <p className="mt-1 text-sm text-muted">Your queue is waiting.</p>
 
-          <form className="mt-6 flex flex-col gap-4" action="/dashboard">
-            <Input label="Email" type="email" name="email" placeholder="you@university.edu" autoComplete="email" />
-            <Input label="Password" type="password" name="password" placeholder="••••••••" autoComplete="current-password" />
-            <Button type="submit" variant="primary" size="lg" full>Sign in →</Button>
-          </form>
-
-          <div className="my-6 h-px bg-line" />
-
-          <EnterAsList />
+          <LoginForm />
 
           <p className="mt-6 text-sm text-muted">
             First submission?{" "}

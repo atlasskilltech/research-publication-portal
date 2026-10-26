@@ -30,10 +30,41 @@ jobs:
 
             git pull origin main
 
-            npm ci
-            npm run build || true
+            # Load production environment from a server-side file.
+            # ASSUMPTION (CONFIRM): production env lives in .env.production.local in
+            # the deployment directory, and the file is shell-sourceable (KEY=value
+            # lines). If you use a PM2 ecosystem env{}, systemd, or a shell profile
+            # instead, change these lines. This file must NEVER be committed (it is
+            # git-ignored).
+            if [ -f .env.production.local ]; then
+              set -a
+              . ./.env.production.local
+              set +a
+            fi
 
-            pm2 reload research-publication-portal || pm2 start --name research-publication-portal
+            # Stop the deploy if required variables are missing. The ${VAR:?msg} form
+            # writes only the message to stderr — it never prints the value.
+            : "${DATABASE_URL:?DATABASE_URL is not set on the server}"
+            : "${AUTH_SECRET:?AUTH_SECRET is not set on the server}"
+
+            # Install dependencies including devDependencies (next, tailwind and the
+            # prisma CLI are devDependencies required to build and migrate).
+            npm ci --include=dev
+
+            # Generate the Prisma client, then build. With `set -e` a failed build
+            # aborts the deploy BEFORE any migration or restart.
+            npx prisma generate
+            npm run build
+
+            # Apply committed migrations to the configured production database only.
+            # Uses migrate deploy (never migrate dev); runs only after a successful build.
+            npx prisma migrate deploy
+
+            # First deploy: start `npm start` (next start -p 5630) so the process
+            # inherits the environment loaded above and binds port 5630. Later deploys
+            # reload the existing process and refresh its env with --update-env.
+            pm2 reload research-publication-portal --update-env \
+              || pm2 start npm --name research-publication-portal -- start
             pm2 save
           EOF
 

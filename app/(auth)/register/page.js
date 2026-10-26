@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
@@ -17,7 +19,55 @@ const SCHOOLS = [
 ];
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [type, setType] = useState("student");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    const fd = new FormData(e.currentTarget);
+    const payload = {
+      name: fd.get("name"),
+      email: fd.get("email"),
+      password: fd.get("password"),
+      baseType: type === "faculty" ? "FACULTY" : "STUDENT",
+      school: fd.get("school") || null,
+      rollNo: fd.get("rollNo") || null,
+    };
+
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not create the account.");
+        setLoading(false);
+        return;
+      }
+      // Auto sign-in after successful registration.
+      const signInRes = await signIn("credentials", {
+        email: payload.email,
+        password: payload.password,
+        redirect: false,
+      });
+      if (signInRes?.error) {
+        // Account created, but auto-login failed — send them to sign in.
+        router.push("/login");
+        return;
+      }
+      router.push("/dashboard");
+      router.refresh();
+    } catch {
+      setError("Something went wrong. Please try again.");
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col justify-center px-6 py-10">
@@ -53,15 +103,25 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        <form className="mt-5 flex flex-col gap-4" action="/dashboard">
-          <Input label="Full name" placeholder="Anushi Shah" />
-          <Input label="University email" type="email" placeholder="you@university.edu" />
+        <form className="mt-5 flex flex-col gap-4" onSubmit={onSubmit}>
+          <Input label="Full name" name="name" placeholder="Anushi Shah" required />
+          <Input label="University email" name="email" type="email" placeholder="you@atlasuniversity.edu.in" required />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Select label="School" options={SCHOOLS} />
-            {type === "student" && <Input label="Roll No. (students)" placeholder="e.g. 2022UGD012" />}
+            <Select label="School" name="school" options={SCHOOLS} />
+            {type === "student" && <Input label="Roll No. (students)" name="rollNo" placeholder="e.g. 2022UGD012" />}
           </div>
-          <Input label="Password" type="password" placeholder="min 6 characters" hint="Every account starts as a Submitter. An administrator assigns reviewer, SPOC and editor roles per paper." />
-          <Button type="submit" variant="primary" size="lg" full>Create account →</Button>
+          <Input
+            label="Password"
+            name="password"
+            type="password"
+            placeholder="at least 10 characters"
+            required
+            error={error || undefined}
+            hint="Every account starts as a Submitter. An administrator assigns reviewer, SPOC and editor roles per paper."
+          />
+          <Button type="submit" variant="primary" size="lg" full disabled={loading}>
+            {loading ? "Creating account…" : "Create account →"}
+          </Button>
         </form>
 
         <p className="mt-6 text-sm text-muted">

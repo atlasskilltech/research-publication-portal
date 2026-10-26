@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import Icon from "@/components/ui/Icon";
 import BrandLogo from "@/components/layout/BrandLogo";
@@ -47,12 +48,13 @@ function UserCard() {
       <span className={cn("mt-2 inline-flex rounded px-2 py-0.5 text-[10px] font-bold", role.chip)}>
         {role.chipText}
       </span>
-      <Link
-        href="/login"
-        className="mt-3 flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm font-semibold text-muted hover:text-ink"
+      <button
+        type="button"
+        onClick={() => signOut({ redirectTo: "/login" })}
+        className="mt-3 flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left text-sm font-semibold text-muted hover:text-ink"
       >
         <Icon name="logout" size={18} /> Sign out
-      </Link>
+      </button>
     </div>
   );
 }

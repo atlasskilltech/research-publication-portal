@@ -11,7 +11,7 @@ import { useRole } from "@/components/layout/RoleContext";
  * role switcher). Phase-1 demo of the multi-role model.
  */
 export default function RoleSwitcher() {
-  const { roleKey, role, setRole } = useRole();
+  const { roleKey, role, setRole, canSwitch } = useRole();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -27,6 +27,16 @@ export default function RoleSwitcher() {
       document.removeEventListener("keydown", onKey);
     };
   }, []);
+
+  // Non-admins cannot switch context — show their real role as a static chip.
+  if (!canSwitch) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm font-semibold text-ink">
+        <span className="hidden text-[11px] font-semibold uppercase tracking-wide text-muted sm:inline">Signed in as</span>
+        <span className={cn("rounded px-2 py-0.5 text-[11px] font-bold", role.chip)}>{role.chipText}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="relative" ref={ref}>

@@ -1,0 +1,54 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
+import Input from "@/components/ui/Input";
+import Button from "@/components/ui/Button";
+
+/**
+ * LoginForm — the real sign-in form. Same markup/look as the original static
+ * form; now posts credentials to Auth.js instead of navigating to /dashboard.
+ */
+export default function LoginForm() {
+  const router = useRouter();
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    const fd = new FormData(e.currentTarget);
+    const res = await signIn("credentials", {
+      email: fd.get("email"),
+      password: fd.get("password"),
+      redirect: false,
+    });
+    setLoading(false);
+    if (res?.error) {
+      setError("Invalid email or password.");
+    } else {
+      router.push("/dashboard");
+      router.refresh();
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-4">
+      <Input label="Email" type="email" name="email" placeholder="you@atlasuniversity.edu.in" autoComplete="email" required />
+      <Input
+        label="Password"
+        type="password"
+        name="password"
+        placeholder="••••••••"
+        autoComplete="current-password"
+        required
+        error={error || undefined}
+      />
+      <Button type="submit" variant="primary" size="lg" full disabled={loading}>
+        {loading ? "Signing in…" : "Sign in →"}
+      </Button>
+    </form>
+  );
+}
