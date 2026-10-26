@@ -1,4 +1,4 @@
-# System Architecture Summary — Research Publication Portal
+# System Architecture Summary — Research Publication Portal..
 
 **Project:** Research Publication Portal — ATLAS SkillTech University
 **Status:** Planning only. No application code, dependencies, schema or migrations have been created.
