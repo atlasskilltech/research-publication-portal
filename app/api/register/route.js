@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { registerSchema } from "@/lib/validation";
+import { createSession, cookieOptions, SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/session";
 
 export async function POST(request) {
   let body;
@@ -33,8 +34,9 @@ export async function POST(request) {
 
   const passwordHash = await bcrypt.hash(password, 12);
 
+  let user;
   try {
-    await prisma.user.create({
+    user = await prisma.user.create({
       data: {
         name,
         email,
@@ -55,5 +57,9 @@ export async function POST(request) {
     throw e;
   }
 
-  return NextResponse.json({ ok: true }, { status: 201 });
+  // Auto sign-in the new account by issuing a server session.
+  const { token } = await createSession(user.id);
+  const res = NextResponse.json({ ok: true }, { status: 201 });
+  res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_SECONDS));
+  return res;
 }

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 
@@ -20,13 +19,13 @@ export default function LoginForm() {
     setError("");
     setLoading(true);
     const fd = new FormData(e.currentTarget);
-    const res = await signIn("credentials", {
-      email: fd.get("email"),
-      password: fd.get("password"),
-      redirect: false,
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: fd.get("email"), password: fd.get("password") }),
     });
     setLoading(false);
-    if (res?.error) {
+    if (!res.ok) {
       setError("Invalid email or password.");
     } else {
       router.push("/dashboard");

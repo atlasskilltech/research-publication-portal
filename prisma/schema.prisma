@@ -37,7 +37,24 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  sessions Session[]
+
   @@map("users")
+}
+
+/// Server-side session. The raw token lives only in the user's httpOnly cookie;
+/// the database stores only its SHA-256 hash. No signing secret is required.
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique @db.VarChar(191)
+  userId    String   @db.VarChar(191)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
 }
 
 /// For email verification and password reset (standard Auth.js shape).

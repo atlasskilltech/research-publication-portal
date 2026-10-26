@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import Icon from "@/components/ui/Icon";
 import BrandLogo from "@/components/layout/BrandLogo";
@@ -50,7 +49,10 @@ function UserCard() {
       </span>
       <button
         type="button"
-        onClick={() => signOut({ redirectTo: "/login" })}
+        onClick={async () => {
+          await fetch("/api/logout", { method: "POST" });
+          window.location.href = "/login"; // full reload clears client state
+        }}
         className="mt-3 flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left text-sm font-semibold text-muted hover:text-ink"
       >
         <Icon name="logout" size={18} /> Sign out

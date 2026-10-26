@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
@@ -50,17 +49,7 @@ export default function RegisterPage() {
         setLoading(false);
         return;
       }
-      // Auto sign-in after successful registration.
-      const signInRes = await signIn("credentials", {
-        email: payload.email,
-        password: payload.password,
-        redirect: false,
-      });
-      if (signInRes?.error) {
-        // Account created, but auto-login failed — send them to sign in.
-        router.push("/login");
-        return;
-      }
+      // Registration already issued a session cookie — go straight in.
       router.push("/dashboard");
       router.refresh();
     } catch {

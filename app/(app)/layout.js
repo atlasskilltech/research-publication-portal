@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { getSessionUser } from "@/lib/session";
 import AppShell from "@/components/layout/AppShell";
 
 /**
@@ -7,10 +7,9 @@ import AppShell from "@/components/layout/AppShell";
  * The real identity (never localStorage) is passed down to the shell.
  */
 export default async function AppLayout({ children }) {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const u = await getSessionUser();
+  if (!u) redirect("/login");
 
-  const u = session.user;
   const sessionUser = {
     name: u.name || u.email,
     email: u.email,

@@ -1,12 +1,21 @@
-// Server-side route protection for the authenticated (app) group.
-// Uses the edge-safe config; the `authorized` callback decides access.
-import NextAuth from "next-auth";
-import authConfig from "./auth.config";
+// Lightweight edge gate for the authenticated (app) routes: redirects to /login
+// when the session cookie is absent. Full session validation (DB lookup) runs
+// server-side in app/(app)/layout.js — this only avoids rendering for requests
+// that clearly have no session.
+import { NextResponse } from "next/server";
 
-export const { auth: middleware } = NextAuth(authConfig);
+const SESSION_COOKIE = "rpp_session";
+
+export function middleware(request) {
+  if (request.cookies.has(SESSION_COOKIE)) return NextResponse.next();
+
+  const url = request.nextUrl.clone();
+  url.pathname = "/login";
+  url.searchParams.set("callbackUrl", request.nextUrl.pathname + request.nextUrl.search);
+  return NextResponse.redirect(url);
+}
 
 export const config = {
-  // Run on the protected app routes only (skips static assets, api/auth, public pages).
   matcher: [
     "/dashboard/:path*",
     "/papers/:path*",
