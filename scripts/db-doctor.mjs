@@ -52,8 +52,19 @@ function loadEnv() {
   return seenFiles;
 }
 
-// Mirror lib/db.js: prefer DATABASE_URL, else discrete DB_* parts.
+// Mirror lib/db.js: a complete discrete DB_* config wins; DATABASE_URL is only
+// a fallback when the parts are not all set.
 function targetConfig() {
+  const { DB_USER, DB_PASS, DB_NAME, DB_HOST, DB_PORT } = process.env;
+  if (DB_USER && DB_PASS && DB_NAME) {
+    return {
+      host: DB_HOST || "127.0.0.1",
+      port: DB_PORT ? Number(DB_PORT) : 3306,
+      user: DB_USER,
+      password: DB_PASS,
+      database: DB_NAME,
+    };
+  }
   const url = process.env.DATABASE_URL;
   if (url) {
     const u = new URL(url);
@@ -65,14 +76,7 @@ function targetConfig() {
       database: u.pathname.replace(/^\//, ""),
     };
   }
-  const { DB_USER, DB_PASS, DB_NAME, DB_HOST, DB_PORT } = process.env;
-  return {
-    host: DB_HOST || "127.0.0.1",
-    port: DB_PORT ? Number(DB_PORT) : 3306,
-    user: DB_USER,
-    password: DB_PASS,
-    database: DB_NAME,
-  };
+  return { host: undefined, port: undefined, user: undefined, password: undefined, database: undefined };
 }
 
 // Never print auth material, even if a grant line happens to carry it.
@@ -90,14 +94,21 @@ async function main() {
     process.exit(1);
   }
 
+  const { DB_USER, DB_PASS, DB_NAME } = process.env;
+  const usingParts = Boolean(DB_USER && DB_PASS && DB_NAME);
   console.log("Env source:");
   console.log("  files found :", seenFiles.length ? seenFiles.join(", ") : "(none)");
   console.log(
     "  config path :",
-    process.env.DATABASE_URL
-      ? "DATABASE_URL is set -> it OVERRIDES DB_USER/DB_PASS/DB_NAME"
-      : "using DB_USER/DB_PASS/DB_NAME parts",
+    usingParts
+      ? "DB_USER/DB_PASS/DB_NAME from .env (these take precedence; DATABASE_URL ignored)"
+      : process.env.DATABASE_URL
+        ? "DATABASE_URL (fallback - DB_* parts are not all set)"
+        : "(none usable)",
   );
+  if (usingParts && process.env.DATABASE_URL) {
+    console.log("  note        : a DATABASE_URL is present but is being IGNORED in favor of DB_* parts");
+  }
   console.log("");
 
   console.log("Connecting as:");

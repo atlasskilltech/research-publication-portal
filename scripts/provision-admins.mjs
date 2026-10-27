@@ -5,13 +5,14 @@
  * their passwords. Passwords are TYPED INTERACTIVELY with hidden input — never
  * hardcoded, never passed on the command line, never printed, never committed.
  *
- * Run locally from the project root:
- *   npx dotenv -e .env.local -- node scripts/provision-admins.mjs
+ * Run from the project root, loading the same env file the app uses:
+ *   npx dotenv -e .env -- node scripts/provision-admins.mjs
+ *   (use -e .env.local for local dev if that is where your values live)
  *
  * Safe to run again: existing accounts are promoted/updated via
  * INSERT ... ON DUPLICATE KEY UPDATE (unique email), never duplicated. It only
- * touches the database your DATABASE_URL points at — never production unless
- * that is the URL you load.
+ * touches the database your DB_* parts (or DATABASE_URL) point at — never
+ * production unless that is the config you load.
  */
 import readline from "node:readline";
 import crypto from "node:crypto";
@@ -24,9 +25,24 @@ const ADMINS = [
 ];
 const MIN_LENGTH = 10;
 
-function dbConfigFromUrl() {
+// Mirror lib/db.js precedence: complete discrete DB_* parts win; DATABASE_URL
+// is used only as a fallback. Keeps this script working against the same .env
+// the app uses, whether configured with DB_* parts or a connection string.
+function dbConfig() {
+  const { DB_USER, DB_PASS, DB_NAME, DB_HOST, DB_PORT } = process.env;
+  if (DB_USER && DB_PASS && DB_NAME) {
+    return {
+      host: DB_HOST || "127.0.0.1",
+      port: DB_PORT ? Number(DB_PORT) : 3306,
+      user: DB_USER,
+      password: DB_PASS,
+      database: DB_NAME,
+    };
+  }
   const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
+  if (!url) {
+    throw new Error("Database not configured: set DB_USER/DB_PASS/DB_NAME, or DATABASE_URL");
+  }
   const u = new URL(url);
   return {
     host: u.hostname,
@@ -79,7 +95,7 @@ async function main() {
     process.exit(1);
   }
 
-  const conn = await mysql.createConnection(dbConfigFromUrl());
+  const conn = await mysql.createConnection(dbConfig());
   try {
     console.log("Provisioning initial Administrator accounts.");
     console.log("Passwords are typed with hidden input and are never displayed or stored in plaintext.\n");
