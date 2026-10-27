@@ -18,11 +18,20 @@ import fs from "node:fs";
 import path from "node:path";
 import mysql from "mysql2/promise";
 
-// Minimal .env loader (no extra dependency). Real env vars win over the file.
+// Minimal .env loader (no extra dependency), matching Next.js precedence for
+// `next start`: a real pre-set env var always wins, then among the files the
+// *.local / *.production variants override plain .env. We load low-priority
+// files first and let higher-priority ones overwrite, while never clobbering a
+// variable that was already present in the real process environment.
 function loadEnv() {
-  for (const file of [".env", ".env.local"]) {
+  const preset = new Set(Object.keys(process.env));
+  // Lowest priority first, highest last (Next loads .env.local over .env).
+  const files = [".env", ".env.production", ".env.local", ".env.production.local"];
+  const seenFiles = [];
+  for (const file of files) {
     const p = path.resolve(process.cwd(), file);
     if (!fs.existsSync(p)) continue;
+    seenFiles.push(file);
     for (const raw of fs.readFileSync(p, "utf8").split(/\r?\n/)) {
       const line = raw.trim();
       if (!line || line.startsWith("#")) continue;
@@ -36,9 +45,11 @@ function loadEnv() {
       ) {
         val = val.slice(1, -1);
       }
-      if (!(key in process.env)) process.env[key] = val;
+      // Real env vars win; otherwise the last (highest-priority) file wins.
+      if (!preset.has(key)) process.env[key] = val;
     }
   }
+  return seenFiles;
 }
 
 // Mirror lib/db.js: prefer DATABASE_URL, else discrete DB_* parts.
@@ -70,7 +81,7 @@ function redact(s) {
 }
 
 async function main() {
-  loadEnv();
+  const seenFiles = loadEnv();
   const cfg = targetConfig();
   if (!cfg.user || !cfg.password || !cfg.database) {
     console.error(
@@ -78,6 +89,16 @@ async function main() {
     );
     process.exit(1);
   }
+
+  console.log("Env source:");
+  console.log("  files found :", seenFiles.length ? seenFiles.join(", ") : "(none)");
+  console.log(
+    "  config path :",
+    process.env.DATABASE_URL
+      ? "DATABASE_URL is set -> it OVERRIDES DB_USER/DB_PASS/DB_NAME"
+      : "using DB_USER/DB_PASS/DB_NAME parts",
+  );
+  console.log("");
 
   console.log("Connecting as:");
   console.log("  host    :", cfg.host);
