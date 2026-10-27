@@ -1,4 +1,4 @@
-# System Architecture Summary — Research Publication Portal.
+# System Architecture Summary — Research Publication Portal..
 
 **Project:** Research Publication Portal — ATLAS SkillTech University
 **Status:** Foundation built (auth + sessions). The shared UI shell exists; authentication and account/session storage are implemented.
