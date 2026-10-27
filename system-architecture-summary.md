@@ -1,8 +1,10 @@
 # System Architecture Summary — Research Publication Portal.
 
 **Project:** Research Publication Portal — ATLAS SkillTech University
-**Status:** Planning only. No application code, dependencies, schema or migrations have been created.
+**Status:** Foundation built (auth + sessions). The shared UI shell exists; authentication and account/session storage are implemented.
 **Companion docs:** `requirements-and-role-matrix.md`, `implementation-roadmap.md`, `open-questions-and-assumptions.md`, and the PDF blueprint (`research-publication-portal-system-architecture-blueprint.pdf`). All must stay consistent.
+
+> **Architecture update (as built).** The database is **MySQL**, accessed **directly via `mysql2/promise`** with parameterized SQL — **no Prisma / no ORM**. The schema is hand-written in `db/schema.sql` (idempotent `CREATE TABLE IF NOT EXISTS`). Authentication is a **custom server-side session** scheme — **no Auth.js / NextAuth, no `AUTH_SECRET`**: a 256-bit random token is set in an httpOnly cookie and only its SHA-256 hash is stored in the MySQL `sessions` table; passwords use **bcryptjs**. Wherever the sections below say PostgreSQL, Prisma, or Auth.js, read MySQL + `mysql2/promise` + custom sessions — those references reflect the original plan and are superseded here.
 
 ---
 
@@ -16,7 +18,7 @@ The portal is a single institutional web application that moves a research paper
 
 ## 2. Recommended architecture (and why)
 
-**Recommendation: a modular Next.js (App Router) application with server-side route handlers + a managed PostgreSQL relational database, deployed on a Node-capable host — NOT a separate microservice backend, and NOT XAMPP/PHP in production.**
+**Recommendation: a modular Next.js (App Router) application with server-side route handlers + a MySQL relational database accessed directly via `mysql2/promise`, deployed on a Node-capable host — NOT a separate microservice backend, and NOT XAMPP/PHP in production.**
 
 ### Why a modular monolith, not microservices
 The whole system is one tightly-coupled workflow over one dataset (papers, roles, reviews). Splitting it into services would add network calls, distributed transactions and deployment overhead for no real scaling benefit at institutional volume (~1,000 papers/cycle). A **modular monolith** — one deployable unit with clean internal module boundaries (`auth`, `papers`, `reviews`, `volumes`, `rbac`, `notifications`, `audit`) — gives the maintainability of separation without the operational cost. It can be split later if a module genuinely needs independent scaling.
@@ -24,8 +26,8 @@ The whole system is one tightly-coupled workflow over one dataset (papers, roles
 ### Why Next.js route handlers / server actions are enough
 Next.js App Router can host both the UI and the secure server logic (Route Handlers under `app/api/**` and Server Actions). All authorization runs server-side in a shared **policy layer** that every handler calls. A separate Express/Nest backend is **not justified** here; it would duplicate auth and models.
 
-### Why PostgreSQL (relational)
-The data is deeply relational and integrity-critical: papers ↔ per-paper role assignments ↔ reviews ↔ decisions ↔ volumes, with history that must never be overwritten. A relational DB gives foreign keys, unique constraints, indexes and **transactions** (essential for "shortlist", "record decision", "lock volume"). PostgreSQL is the pragmatic, free, production-grade choice. Access it from JavaScript via **Prisma** (preferred for DX/migrations) or **Drizzle**.
+### Why MySQL (relational)
+The data is deeply relational and integrity-critical: papers ↔ per-paper role assignments ↔ reviews ↔ decisions ↔ volumes, with history that must never be overwritten. A relational DB gives foreign keys, unique constraints, indexes and **transactions** (essential for "shortlist", "record decision", "lock volume"). **MySQL** is the chosen database. It is accessed directly from JavaScript via **`mysql2/promise`** using parameterized SQL (no ORM); schema and changes are hand-written, reviewed SQL in `db/schema.sql`.
 
 ### Required frontend stack (fixed by the brief)
 Next.js **App Router**, **JavaScript only (no TypeScript)**, **Tailwind CSS v4**, mobile-first, reusable components, accessible semantic HTML. No Pages Router, no stray CSS files.
@@ -38,10 +40,10 @@ Next.js **App Router**, **JavaScript only (no TypeScript)**, **Tailwind CSS v4**
 |---|---|---|
 | Framework | Next.js 15+ App Router (JS) | Required; unifies UI + secure server code |
 | Styling | Tailwind CSS v4 (CSS-first `@theme` tokens) | Required; brand tokens for ATLAS + 4 school colours |
-| Auth | **Auth.js (NextAuth)** credentials provider for MVP; add institutional **SSO (SAML/OIDC)** later | Email is university-domain; SSO is the natural production path |
+| Auth | **Custom server-side sessions** (credentials + bcryptjs; random token in httpOnly cookie, SHA-256 hash stored in MySQL; no Auth.js, no `AUTH_SECRET`); add institutional **SSO (SAML/OIDC)** later | Email is university-domain; SSO is the natural production path |
 | Authorization | Custom **server-side policy module** (`can(user, action, paper)`) | Per-paper RBAC is bespoke; must be centralised & tested |
-| Database | PostgreSQL (managed) | Relational integrity + transactions |
-| ORM / access | Prisma (JS) | Migrations, type-safe-ish queries, readable |
+| Database | MySQL | Relational integrity + transactions |
+| DB access | `mysql2/promise` (direct, parameterized SQL; no ORM) | Simple, explicit queries; schema in `db/schema.sql` |
 | File storage | S3-compatible object storage + signed URLs; Google Drive link as interim/fallback | Private research must not be public; DB stores references only |
 | Plagiarism/AI | Manual Turnitin capture (MVP) → API later | Matches prototype; low initial complexity |
 | Email | Resend or SendGrid (currently mocked) | Activity feed already models notifications |
@@ -56,7 +58,7 @@ Next.js **App Router**, **JavaScript only (no TypeScript)**, **Tailwind CSS v4**
 1. **Browser** requests a page or calls an API route (cookie-based session attached).
 2. **Next.js middleware / route handler** runs on the server; it resolves the **session** (who you are — *authentication*).
 3. The handler calls the **policy layer**: *is this user allowed to do this action on this specific paper?* (*authorization*). For a paper view it checks: are you the submitter, an assigned role on this paper, or Admin?
-4. If allowed, the **data layer** (Prisma) runs queries/transactions against PostgreSQL. Writes that span tables (shortlist, decision, volume lock) run inside a **transaction** and append to the **audit log** + **activity/notifications**.
+4. If allowed, the **data layer** (`mysql2/promise`, parameterized SQL) runs queries/transactions against MySQL. Writes that span tables (shortlist, decision, volume lock) run inside a **transaction** and append to the **audit log** + **activity/notifications**.
 5. File links resolve to **signed, time-limited URLs** (or the stored Drive link).
 6. The server returns only the data this user is permitted to see (e.g. a peer reviewer never receives the other reviewer's report in the payload — not just hidden in CSS).
 7. The **browser** renders the result with reusable, accessible, responsive components.
@@ -74,15 +76,15 @@ Next.js **App Router**, **JavaScript only (no TypeScript)**, **Tailwind CSS v4**
 ┌───────────────┴───────────────────────────────▼────────────────┐
 │ NEXT.JS SERVER (App Router)                                     │
 │  Route Handlers / Server Actions                                │
-│  ├─ AUTH (Auth.js session)                                      │
+│  ├─ AUTH (custom server-side session)                           │
 │  ├─ POLICY / RBAC  ← every write & read passes through here      │
 │  ├─ Feature modules: papers · screening · reviews · decisions · │
 │  │                   volumes · import · users · notifications    │
 │  └─ AUDIT (append-only)                                          │
 └───────┬───────────────────┬───────────────────┬────────────────┘
-        │ Prisma            │ signed URLs        │ API keys
+        │ mysql2            │ signed URLs        │ API keys
 ┌───────▼──────┐   ┌────────▼────────┐   ┌───────▼──────────────┐
-│ PostgreSQL   │   │ Object storage  │   │ External services     │
+│ MySQL        │   │ Object storage  │   │ External services     │
 │ (relational, │   │ (manuscripts,   │   │ Email (Resend/SendGrid)│
 │ transactions)│   │ volume PDFs)    │   │ Turnitin · Drive      │
 └──────────────┘   └─────────────────┘   └──────────────────────┘
@@ -107,9 +109,9 @@ Full detail in the PDF (Security Architecture) and `open-questions-and-assumptio
 
 | Environment | Purpose | Notes |
 |---|---|---|
-| **Local dev** | Build features | Next.js dev server + local Postgres (Docker) or a dev cloud DB. **XAMPP is only the folder location here, not the runtime** — Next.js needs Node, not Apache/PHP. |
+| **Local dev** | Build features | Next.js dev server + local MySQL (e.g. XAMPP's MySQL/MariaDB on 3306). **XAMPP's Apache/PHP is not the runtime** — Next.js needs Node; only its MySQL is used. |
 | **Staging** | Pre-release testing | Mirrors prod; seed/anonymised data; email provider in test mode |
-| **Production** | Live | Managed Postgres, object storage, real email keys, backups, monitoring |
+| **Production** | Live | MySQL, object storage, real email keys, backups, monitoring |
 
 ---
 

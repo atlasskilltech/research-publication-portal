@@ -1,5 +1,5 @@
 /**
- * One-time, repeatable Admin provisioning.
+ * One-time, repeatable Admin provisioning (direct MySQL via mysql2).
  *
  * Creates (or promotes) the intended initial Administrator accounts and sets
  * their passwords. Passwords are TYPED INTERACTIVELY with hidden input — never
@@ -8,40 +8,51 @@
  * Run locally from the project root:
  *   npx dotenv -e .env.local -- node scripts/provision-admins.mjs
  *
- * Safe to run again: existing accounts are promoted/updated (upsert), not
- * duplicated. It only touches the database your .env.local points at — never
- * production (configure production separately on the server).
+ * Safe to run again: existing accounts are promoted/updated via
+ * INSERT ... ON DUPLICATE KEY UPDATE (unique email), never duplicated. It only
+ * touches the database your DATABASE_URL points at — never production unless
+ * that is the URL you load.
  */
 import readline from "node:readline";
+import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { PrismaClient } from "@prisma/client";
+import mysql from "mysql2/promise";
 
 const ADMINS = [
   { email: "faizan.shaikh@atlasuniversity.edu.in", name: "Faizan Shaikh" },
   { email: "elizabeth.jerome@atlasuniversity.edu.in", name: "Elizabeth Jerome" },
 ];
-
 const MIN_LENGTH = 10;
-const prisma = new PrismaClient();
+
+function dbConfigFromUrl() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL is not set");
+  const u = new URL(url);
+  return {
+    host: u.hostname,
+    port: u.port ? Number(u.port) : 3306,
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+    database: u.pathname.replace(/^\//, ""),
+  };
+}
 
 /** Prompt on the terminal; when hidden, keystrokes are masked and never echoed. */
-function prompt(query, { hidden = false } = {}) {
+function prompt(question, { hidden = false } = {}) {
   return new Promise((resolve) => {
     const input = process.stdin;
     const output = process.stdout;
-    output.write(query);
+    output.write(question);
     if (hidden && input.isTTY) input.setRawMode(true);
     input.resume();
     let buf = "";
     const onData = (d) => {
-      const s = d.toString("utf8");
-      for (const ch of s) {
+      for (const ch of d.toString("utf8")) {
         if (ch === "\n" || ch === "\r") {
           cleanup();
           output.write("\n");
           return resolve(buf);
         } else if (ch === "\u0003") {
-          // Ctrl-C
           cleanup();
           output.write("\n");
           process.exit(130);
@@ -68,45 +79,47 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("Provisioning initial Administrator accounts.");
-  console.log("Passwords are typed with hidden input and are never displayed or stored in plaintext.\n");
+  const conn = await mysql.createConnection(dbConfigFromUrl());
+  try {
+    console.log("Provisioning initial Administrator accounts.");
+    console.log("Passwords are typed with hidden input and are never displayed or stored in plaintext.\n");
 
-  for (const admin of ADMINS) {
-    console.log(`• ${admin.email}`);
-    const pw = await prompt(`  Set password (min ${MIN_LENGTH} chars): `, { hidden: true });
-    if (pw.length < MIN_LENGTH) {
-      console.error("  ✗ Too short — skipped.\n");
-      continue;
-    }
-    const confirm = await prompt("  Confirm password: ", { hidden: true });
-    if (pw !== confirm) {
-      console.error("  ✗ Passwords did not match — skipped.\n");
-      continue;
+    for (const admin of ADMINS) {
+      console.log(`• ${admin.email}`);
+      const pw = await prompt(`  Set password (min ${MIN_LENGTH} chars): `, { hidden: true });
+      if (pw.length < MIN_LENGTH) {
+        console.error("  ✗ Too short — skipped.\n");
+        continue;
+      }
+      const confirm = await prompt("  Confirm password: ", { hidden: true });
+      if (pw !== confirm) {
+        console.error("  ✗ Passwords did not match — skipped.\n");
+        continue;
+      }
+
+      const passwordHash = await bcrypt.hash(pw, 12);
+      await conn.execute(
+        `INSERT INTO \`users\`
+           (\`id\`, \`name\`, \`email\`, \`passwordHash\`, \`baseType\`, \`isAdmin\`, \`createdAt\`, \`updatedAt\`)
+         VALUES (?, ?, ?, ?, 'FACULTY', 1, NOW(3), NOW(3))
+         ON DUPLICATE KEY UPDATE
+           \`passwordHash\` = VALUES(\`passwordHash\`),
+           \`name\` = VALUES(\`name\`),
+           \`isAdmin\` = 1,
+           \`baseType\` = 'FACULTY',
+           \`updatedAt\` = NOW(3)`,
+        [crypto.randomUUID(), admin.name, admin.email, passwordHash],
+      );
+      console.log(`  ✓ ${admin.email} is now an Administrator.\n`);
     }
 
-    const passwordHash = await bcrypt.hash(pw, 12);
-    await prisma.user.upsert({
-      where: { email: admin.email },
-      update: { isAdmin: true, passwordHash, name: admin.name, baseType: "FACULTY" },
-      create: {
-        email: admin.email,
-        name: admin.name,
-        passwordHash,
-        isAdmin: true,
-        baseType: "FACULTY",
-      },
-    });
-    console.log(`  ✓ ${admin.email} is now an Administrator.\n`);
+    console.log("Done.");
+  } finally {
+    await conn.end();
   }
-
-  console.log("Done.");
 }
 
-main()
-  .catch((e) => {
-    console.error("Provisioning failed:", e.message);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main().catch((e) => {
+  console.error("Provisioning failed:", e?.code || e?.message);
+  process.exitCode = 1;
+});

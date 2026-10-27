@@ -1,7 +1,7 @@
 // Custom login: verify credentials with bcrypt, then issue a server session.
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/db";
+import { queryOne } from "@/lib/db";
 import { loginSchema } from "@/lib/validation";
 import { createSession, cookieOptions, SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/session";
 
@@ -19,21 +19,24 @@ export async function POST(request) {
   if (!parsed.success) return invalid();
 
   const email = parsed.data.email.toLowerCase();
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.passwordHash) return invalid();
 
-  const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
-  if (!ok) return invalid();
-
-  // Credentials are valid. A failure beyond this point is an internal/database
-  // error (e.g. missing sessions table) — surface it as 500, never as 401.
   try {
+    const user = await queryOne(
+      "SELECT `id`, `passwordHash` FROM `users` WHERE `email` = ? LIMIT 1",
+      [email],
+    );
+    if (!user || !user.passwordHash) return invalid();
+
+    const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
+    if (!ok) return invalid();
+
+    // Credentials valid. A failure beyond this point is internal — surface 500.
     const { token } = await createSession(user.id);
     const res = NextResponse.json({ ok: true });
     res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_SECONDS));
     return res;
   } catch (e) {
-    console.error("login: session creation failed:", e?.code || e?.message);
+    console.error("login: error:", e?.code || e?.message);
     return NextResponse.json(
       { error: "Sign-in is temporarily unavailable. Please try again later." },
       { status: 500 },

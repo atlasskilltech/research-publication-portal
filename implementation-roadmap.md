@@ -1,7 +1,9 @@
 # Implementation Roadmap — Research Publication Portal
 
 **Status:** Planning only — nothing below has been built. Begin coding only after sign-off on `open-questions-and-assumptions.md`.
-**Stack (fixed):** Next.js App Router · JavaScript only · Tailwind CSS v4 · PostgreSQL · Prisma · Auth.js · object storage + signed URLs.
+**Stack (fixed):** Next.js App Router · JavaScript only · Tailwind CSS v4 · MySQL · direct `mysql2/promise` access (no ORM) · custom server-side session auth (no Auth.js) · object storage + signed URLs.
+
+> **Architecture update (as built):** the database is **MySQL**, accessed directly with **`mysql2/promise`** (parameterized SQL, no Prisma/ORM). Authentication is a **custom server-side session** scheme (cryptographically random token in an httpOnly cookie, only its SHA-256 hash stored in MySQL — no Auth.js, no `AUTH_SECRET`). Schema lives in `db/schema.sql` (idempotent `CREATE TABLE IF NOT EXISTS`). Earlier references below to PostgreSQL / Prisma / Auth.js describe the original plan and are superseded by this note.
 
 Legend: **MVP** = required for a usable first release · **Later** = enhancement.
 
@@ -54,15 +56,15 @@ Critical path: **P0 → P1 → P2 → P3 → P4** must be solid before any role 
 ## Phase 2 — Database & data model
 - **Objective:** Schema for the whole workflow with non-destructive history.
 - **Tasks:** model `schools`, `programmes`, `users`, `papers`, `paper_roles` (per-paper assignments), `desk_reviews`, `peer_reviews` (round R1/R2, append-only), `editorial_decisions`, `volumes`, `volume_papers`, `notifications`, `audit_log`; constraints, indexes, enums; seed schools/programmes.
-- **Files:** `prisma/schema.prisma`, `prisma/seed.js`, `lib/db.js`.
-- **DB changes:** initial migration.
+- **Files:** `db/schema.sql` (hand-written DDL, idempotent), `lib/db.js` (`mysql2/promise` pool + `query`/`queryOne` helpers). *(As built so far: `users`, `verification_tokens`, `sessions`.)*
+- **DB changes:** applied via reviewed SQL in `db/schema.sql` — additive only, never drop/reset.
 - **Security:** no PII beyond need; grades/decisions immutable via new rows, not overwrites.
 - **Acceptance:** migrations run; ERD matches PDF §11; review history is additive.
 
 ## Phase 3 — Authentication & account lifecycle
 - **Objective:** Secure sign-in/registration.
-- **Tasks:** Auth.js credentials; registration (Student/Faculty toggle, roll-no for students, university-email rule); password hashing (argon2/bcrypt); session cookies (httpOnly, secure, sameSite); **[confirm] email verification + account approval**; password reset **[no reference screen — propose]**.
-- **Files:** `app/(auth)/login`, `app/(auth)/register`, `app/api/auth/**`, `lib/auth.js`.
+- **Tasks:** custom credentials auth (no Auth.js) — server-side sessions: a random 256-bit token in an httpOnly cookie, only its SHA-256 hash stored in MySQL `sessions`, expiry enforced in SQL; registration (Student/Faculty toggle, roll-no for students, university-email rule); password hashing (**bcryptjs**); session cookies (httpOnly, secure in prod, sameSite=lax); **[confirm] email verification + account approval**; password reset **[no reference screen — propose]**.
+- **Files:** `app/(auth)/login`, `app/(auth)/register`, `app/api/login`, `app/api/logout`, `app/api/register`, `lib/session.js`, `lib/rbac.js`, `middleware.js`.
 - **Security:** rate-limit login/register; generic auth errors; no privileged self-registration.
 - **Acceptance:** register → verify/approve → login → session; abuse paths rate-limited.
 

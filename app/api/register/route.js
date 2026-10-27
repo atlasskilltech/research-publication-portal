@@ -1,8 +1,9 @@
 // Public self-registration. Always creates a Submitter (STUDENT or FACULTY).
 // Role/privilege values are NEVER read from the client; isAdmin is forced false.
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import { registerSchema } from "@/lib/validation";
 import { createSession, cookieOptions, SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/session";
 
@@ -23,46 +24,44 @@ export async function POST(request) {
   }
 
   const { name, email, password, baseType, school, rollNo } = parsed.data;
+  const conflict = () =>
+    NextResponse.json({ error: "An account with this email already exists." }, { status: 409 });
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return NextResponse.json(
-      { error: "An account with this email already exists." },
-      { status: 409 },
-    );
-  }
-
-  const passwordHash = await bcrypt.hash(password, 12);
-
-  let user;
+  let userId;
   try {
-    user = await prisma.user.create({
-      data: {
+    const existing = await queryOne("SELECT `id` FROM `users` WHERE `email` = ? LIMIT 1", [email]);
+    if (existing) return conflict();
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    userId = crypto.randomUUID();
+    await query(
+      `INSERT INTO \`users\`
+         (\`id\`, \`name\`, \`email\`, \`passwordHash\`, \`baseType\`, \`isAdmin\`, \`schoolCode\`, \`rollNo\`, \`createdAt\`, \`updatedAt\`)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?, NOW(3), NOW(3))`,
+      [
+        userId,
         name,
         email,
         passwordHash,
         baseType, // STUDENT | FACULTY only
-        isAdmin: false, // privilege can never be self-assigned
-        schoolCode: school || null,
-        rollNo: baseType === "STUDENT" ? rollNo || null : null,
-      },
-    });
+        school || null,
+        baseType === "STUDENT" ? rollNo || null : null,
+      ],
+    );
   } catch (e) {
-    if (e?.code === "P2002") {
-      return NextResponse.json(
-        { error: "An account with this email already exists." },
-        { status: 409 },
-      );
-    }
-    throw e;
+    if (e?.code === "ER_DUP_ENTRY") return conflict();
+    console.error("register: error:", e?.code || e?.message);
+    return NextResponse.json(
+      { error: "Registration is temporarily unavailable. Please try again later." },
+      { status: 500 },
+    );
   }
 
-  // Auto sign-in the new account by issuing a server session. The account is
-  // already created; if session creation fails (e.g. missing sessions table),
-  // report success-without-sign-in rather than a misleading error.
+  // Account created. Auto sign-in by issuing a session; if that fails, report
+  // success-without-sign-in rather than a misleading error.
   let token;
   try {
-    ({ token } = await createSession(user.id));
+    ({ token } = await createSession(userId));
   } catch (e) {
     console.error("register: session creation failed:", e?.code || e?.message);
     return NextResponse.json({ ok: true, signedIn: false }, { status: 201 });
