@@ -8,10 +8,10 @@
     "build": "next build",
     "start": "next start -p 5630",
     "lint": "next lint",
-    "db:check": "node --env-file=.env.local scripts/check-db.mjs",
-    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
-    "db:verify": "node --env-file=.env.local scripts/verify-schema.mjs",
-    "db:provision-admins": "node --env-file=.env.local scripts/provision-admins.mjs"
+    "db:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/check-db.mjs",
+    "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migrate.mjs",
+    "db:verify": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/verify-schema.mjs",
+    "db:provision-admins": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/provision-admins.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

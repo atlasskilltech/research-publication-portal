@@ -2,7 +2,10 @@
  * One-time, repeatable Administrator provisioning (direct MySQL via mysql2).
  *
  *   npm run db:provision-admins
- *   (= node --env-file=.env.local scripts/provision-admins.mjs)
+ *   (= node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/provision-admins.mjs)
+ *
+ * Loads .env first, then .env.local on top if present (local overrides). On
+ * production, where only .env exists, .env.local is skipped harmlessly.
  *
  * Creates (or promotes) the intended initial Administrator accounts and sets
  * their passwords. Passwords are TYPED INTERACTIVELY with hidden input — never
@@ -26,7 +29,7 @@ const ADMINS = [
 const MIN_LENGTH = 10;
 const BCRYPT_COST = 12; // must match lib/auth/password.js
 
-const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASSWORD = "", DB_NAME } = process.env;
+const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASS = "", DB_NAME } = process.env;
 const missing = ["DB_HOST", "DB_USER", "DB_NAME"].filter((k) => !process.env[k]);
 if (missing.length > 0) {
   console.error(`Missing required env vars: ${missing.join(", ")}`);
@@ -81,7 +84,7 @@ async function main() {
     host: DB_HOST,
     port: Number(DB_PORT),
     user: DB_USER,
-    password: DB_PASSWORD,
+    password: DB_PASS,
     database: DB_NAME,
   });
 

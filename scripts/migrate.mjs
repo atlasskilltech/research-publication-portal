@@ -2,7 +2,10 @@
  * Applies pending database migrations, in order, exactly once each.
  *
  *   npm run db:migrate
- *   (= node --env-file=.env.local scripts/migrate.mjs)
+ *   (= node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migrate.mjs)
+ *
+ * Loads .env first, then .env.local on top if present (local overrides). On
+ * production, where only .env exists, .env.local is skipped harmlessly.
  *
  * Reads the same DB_* variables the application uses, so it follows whatever
  * .env.local you load it with and needs no mysql CLI on PATH. It connects to
@@ -23,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import mysql from "mysql2/promise";
 
-const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASSWORD = "", DB_NAME } = process.env;
+const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASS = "", DB_NAME } = process.env;
 
 const missing = ["DB_HOST", "DB_USER", "DB_NAME"].filter((k) => !process.env[k]);
 if (missing.length > 0) {
@@ -36,7 +39,7 @@ const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "datab
 
 console.log(`\nResearch Publication Portal — migrate`);
 console.log(`  target   ${DB_HOST}:${DB_PORT}/${DB_NAME}`);
-console.log(`  user     ${DB_USER} (password ${DB_PASSWORD ? "set" : "blank"})\n`);
+console.log(`  user     ${DB_USER} (password ${DB_PASS ? "set" : "blank"})\n`);
 
 let conn;
 try {
@@ -44,7 +47,7 @@ try {
     host: DB_HOST,
     port: Number(DB_PORT),
     user: DB_USER,
-    password: DB_PASSWORD,
+    password: DB_PASS,
     database: DB_NAME, // connect by name — never create it
     multipleStatements: true,
     charset: "utf8mb4_unicode_ci",
