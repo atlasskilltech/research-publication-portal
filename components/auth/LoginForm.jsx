@@ -7,7 +7,7 @@ import Button from "@/components/ui/Button";
 
 /**
  * LoginForm — the real sign-in form. Same markup/look as the original static
- * form; now posts credentials to Auth.js instead of navigating to /dashboard.
+ * form; posts credentials to /api/login and, on success, enters the app.
  */
 export default function LoginForm() {
   const router = useRouter();
@@ -19,22 +19,27 @@ export default function LoginForm() {
     setError("");
     setLoading(true);
     const fd = new FormData(e.currentTarget);
-    const res = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: fd.get("email"), password: fd.get("password") }),
-    });
-    setLoading(false);
-    if (res.ok) {
-      router.push("/dashboard");
-      router.refresh();
-      return;
-    }
-    if (res.status === 401) {
-      setError("Invalid email or password.");
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Sign-in is temporarily unavailable. Please try again.");
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: fd.get("email"), password: fd.get("password") }),
+      });
+      if (res.ok) {
+        router.push("/dashboard");
+        router.refresh();
+        return;
+      }
+      setLoading(false);
+      if (res.status === 401) {
+        setError("Invalid email or password.");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Sign-in is temporarily unavailable. Please try again.");
+      }
+    } catch {
+      setLoading(false);
+      setError("Something went wrong. Please try again.");
     }
   }
 

@@ -4,7 +4,8 @@ import AppShell from "@/components/layout/AppShell";
 
 /**
  * Authenticated layout. Server-side gate: no valid session -> /login.
- * The real identity (never localStorage) is passed down to the shell.
+ * The real identity (never localStorage) is resolved from the session cookie
+ * and passed down to the shell.
  */
 export default async function AppLayout({ children }) {
   const u = await getSessionUser();

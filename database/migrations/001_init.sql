@@ -1,11 +1,15 @@
--- Canonical schema for the Research Publication Portal (direct MySQL / mysql2).
--- Replaces Prisma migrations as the schema record.
+-- 001_init — baseline auth schema for the Research Publication Portal.
 --
--- SAFE / IDEMPOTENT: every statement uses CREATE TABLE IF NOT EXISTS. Running
--- this never drops, truncates, recreates, or alters an existing table, so it
--- will not touch existing users, Admin accounts, password hashes, or data.
--- On a database that already has these tables (e.g. created earlier by Prisma),
--- this script is a no-op.
+-- SAFE / IDEMPOTENT: every statement uses CREATE TABLE IF NOT EXISTS, so running
+-- this on a database that already holds these tables (e.g. one created earlier
+-- by the previous backend or by Prisma) is a no-op. It never drops, truncates,
+-- recreates or alters an existing table, so it cannot touch existing users,
+-- Administrator accounts, password hashes or sessions.
+--
+-- Column shapes intentionally match the previous schema exactly, so an existing
+-- production table is recognised as already-present and left untouched. Future
+-- structural changes must be added as new, separately-numbered migration files
+-- (using guarded ALTERs), never by editing this baseline.
 
 CREATE TABLE IF NOT EXISTS `users` (
   `id`            VARCHAR(191) NOT NULL,
@@ -40,5 +44,7 @@ CREATE TABLE IF NOT EXISTS `sessions` (
   PRIMARY KEY (`id`),
   UNIQUE INDEX `sessions_tokenHash_key` (`tokenHash`),
   INDEX `sessions_userId_idx` (`userId`),
-  CONSTRAINT `sessions_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+  INDEX `sessions_expiresAt_idx` (`expiresAt`),
+  CONSTRAINT `sessions_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users` (`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

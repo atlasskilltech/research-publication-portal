@@ -1,24 +1,29 @@
-// Custom login: verify credentials with bcrypt, then issue a server session.
+// Sign-in: verify credentials with bcrypt, then issue a server session.
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
-import { queryOne } from "@/lib/db";
-import { loginSchema } from "@/lib/validation";
+import { queryOne, execute } from "@/lib/db";
+import { verifyPassword, needsRehash, hashPassword } from "@/lib/auth/password";
+import { validateLogin } from "@/lib/validation";
+import { ValidationError } from "@/lib/errors";
 import { createSession, cookieOptions, SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/session";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function POST(request) {
-  let body;
+  // Generic failure — never reveal whether the email or the password was wrong.
+  const invalid = () =>
+    NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
+
+  let email, password;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    const body = await request.json();
+    ({ email, password } = validateLogin(body));
+  } catch (error) {
+    // Malformed body or failed validation both collapse to the generic 401, so
+    // the endpoint cannot be used to probe which accounts exist.
+    if (error instanceof ValidationError || error instanceof SyntaxError) return invalid();
+    throw error;
   }
-
-  const parsed = loginSchema.safeParse(body);
-  // Generic error — never reveal whether the email or the password was wrong.
-  const invalid = () => NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
-  if (!parsed.success) return invalid();
-
-  const email = parsed.data.email.toLowerCase();
 
   try {
     const user = await queryOne(
@@ -27,10 +32,16 @@ export async function POST(request) {
     );
     if (!user || !user.passwordHash) return invalid();
 
-    const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
+    const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) return invalid();
 
-    // Credentials valid. A failure beyond this point is internal — surface 500.
+    // Transparently upgrade a hash stored with a weaker cost factor.
+    if (needsRehash(user.passwordHash)) {
+      const upgraded = await hashPassword(password);
+      await execute("UPDATE `users` SET `passwordHash` = ? WHERE `id` = ?", [upgraded, user.id]);
+    }
+
+    // Credentials valid. Any failure beyond here is internal — surface a 500.
     const { token } = await createSession(user.id);
     const res = NextResponse.json({ ok: true });
     res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_SECONDS));

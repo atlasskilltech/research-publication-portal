@@ -7,7 +7,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start -p 5630",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:check": "node --env-file=.env.local scripts/check-db.mjs",
+    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "db:verify": "node --env-file=.env.local scripts/verify-schema.mjs",
+    "db:provision-admins": "node --env-file=.env.local scripts/provision-admins.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -15,7 +19,7 @@
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "zod": "^3.25.76"
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
