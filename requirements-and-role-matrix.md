@@ -1,4 +1,4 @@
-# Requirements & Role Matrix — Research Publication Portal
+# Requirements & Role Matrix — Research Publication Portal.
 
 **Project:** Research Publication Portal — ATLAS SkillTech University ("Portal 2025–26")
 **Document status:** Planning only (no application built).
