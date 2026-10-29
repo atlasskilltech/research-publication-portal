@@ -25,6 +25,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import mysql from "mysql2/promise";
+import { TABLES } from "../lib/tables.mjs";
 
 const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASS = "", DB_NAME } = process.env;
 
@@ -67,14 +68,14 @@ try {
 
 try {
   await conn.query(
-    "CREATE TABLE IF NOT EXISTS `schema_migrations` (" +
+    `CREATE TABLE IF NOT EXISTS \`${TABLES.schemaMigrations}\` (` +
       "`filename` VARCHAR(255) NOT NULL," +
       "`applied_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)," +
       "PRIMARY KEY (`filename`)" +
       ") ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
   );
 
-  const [appliedRows] = await conn.query("SELECT `filename` FROM `schema_migrations`");
+  const [appliedRows] = await conn.query(`SELECT \`filename\` FROM \`${TABLES.schemaMigrations}\``);
   const applied = new Set(appliedRows.map((r) => r.filename));
 
   const files = (await readdir(migrationsDir))
@@ -96,7 +97,7 @@ try {
     process.stdout.write(`  apply  ${file} ... `);
     try {
       await conn.query(sql);
-      await conn.execute("INSERT INTO `schema_migrations` (`filename`) VALUES (?)", [file]);
+      await conn.execute(`INSERT INTO \`${TABLES.schemaMigrations}\` (\`filename\`) VALUES (?)`, [file]);
       ran += 1;
       console.log("done");
     } catch (error) {

@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { query, queryOne } from "@/lib/db";
+import { TABLES } from "@/lib/tables.mjs";
 import { hashPassword } from "@/lib/auth/password";
 import { validateRegister } from "@/lib/validation";
 import { ValidationError } from "@/lib/errors";
@@ -37,13 +38,13 @@ export async function POST(request) {
 
   let userId;
   try {
-    const existing = await queryOne("SELECT `id` FROM `users` WHERE `email` = ? LIMIT 1", [email]);
+    const existing = await queryOne(`SELECT \`id\` FROM \`${TABLES.users}\` WHERE \`email\` = ? LIMIT 1`, [email]);
     if (existing) return conflict();
 
     const passwordHash = await hashPassword(password);
     userId = crypto.randomUUID();
     await query(
-      "INSERT INTO `users` " +
+      `INSERT INTO \`${TABLES.users}\` ` +
         "(`id`, `name`, `email`, `passwordHash`, `baseType`, `isAdmin`, `schoolCode`, `rollNo`, `createdAt`, `updatedAt`) " +
         "VALUES (?, ?, ?, ?, ?, 0, ?, ?, NOW(3), NOW(3))",
       [userId, name, email, passwordHash, baseType, school, rollNo],

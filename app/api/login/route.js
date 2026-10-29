@@ -1,6 +1,7 @@
 // Sign-in: verify credentials with bcrypt, then issue a server session.
 import { NextResponse } from "next/server";
 import { queryOne, execute } from "@/lib/db";
+import { TABLES } from "@/lib/tables.mjs";
 import { verifyPassword, needsRehash, hashPassword } from "@/lib/auth/password";
 import { validateLogin } from "@/lib/validation";
 import { ValidationError } from "@/lib/errors";
@@ -27,7 +28,7 @@ export async function POST(request) {
 
   try {
     const user = await queryOne(
-      "SELECT `id`, `passwordHash` FROM `users` WHERE `email` = ? LIMIT 1",
+      `SELECT \`id\`, \`passwordHash\` FROM \`${TABLES.users}\` WHERE \`email\` = ? LIMIT 1`,
       [email],
     );
     if (!user || !user.passwordHash) return invalid();
@@ -38,7 +39,7 @@ export async function POST(request) {
     // Transparently upgrade a hash stored with a weaker cost factor.
     if (needsRehash(user.passwordHash)) {
       const upgraded = await hashPassword(password);
-      await execute("UPDATE `users` SET `passwordHash` = ? WHERE `id` = ?", [upgraded, user.id]);
+      await execute(`UPDATE \`${TABLES.users}\` SET \`passwordHash\` = ? WHERE \`id\` = ?`, [upgraded, user.id]);
     }
 
     // Credentials valid. Any failure beyond here is internal — surface a 500.

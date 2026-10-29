@@ -12,10 +12,11 @@
  * deviation, so it can gate a deployment. Read-only — it changes nothing.
  */
 import mysql from "mysql2/promise";
+import { TABLES } from "../lib/tables.mjs";
 
 const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASS = "", DB_NAME } = process.env;
 
-const EXPECTED = ["users", "verification_tokens", "sessions"];
+const EXPECTED = [TABLES.users, TABLES.verificationTokens, TABLES.sessions];
 
 const conn = await mysql.createConnection({
   host: DB_HOST,
@@ -50,7 +51,7 @@ for (const name of EXPECTED) {
   if (!found.includes(name)) fail(`missing table: ${name}`);
 }
 for (const t of tables) {
-  if (!EXPECTED.includes(t.name) && t.name !== "schema_migrations") continue;
+  if (!EXPECTED.includes(t.name) && t.name !== TABLES.schemaMigrations) continue;
   if (t.engine !== "InnoDB") fail(`${t.name} engine is ${t.engine}`);
   if (t.collation !== "utf8mb4_unicode_ci") fail(`${t.name} collation is ${t.collation}`);
 }
@@ -64,7 +65,7 @@ const [fks] = await conn.query(
 let migrations = [];
 try {
   const [rows] = await conn.query(
-    "SELECT `filename`, `applied_at` FROM `schema_migrations` ORDER BY `filename`",
+    `SELECT \`filename\`, \`applied_at\` FROM \`${TABLES.schemaMigrations}\` ORDER BY \`filename\``,
   );
   migrations = rows;
 } catch {

@@ -19,6 +19,7 @@
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import mysql from "mysql2/promise";
+import { TABLES } from "../lib/tables.mjs";
 
 // The intended initial Administrators (from the project's original provisioning
 // list). Edit here if the institution confirms a different set.
@@ -107,7 +108,7 @@ async function main() {
 
       const passwordHash = await bcrypt.hash(pw, BCRYPT_COST);
       await conn.execute(
-        "INSERT INTO `users` " +
+        `INSERT INTO \`${TABLES.users}\` ` +
           "(`id`, `name`, `email`, `passwordHash`, `baseType`, `isAdmin`, `createdAt`, `updatedAt`) " +
           "VALUES (?, ?, ?, ?, 'FACULTY', 1, NOW(3), NOW(3)) " +
           "ON DUPLICATE KEY UPDATE " +
