@@ -13,7 +13,7 @@
  */
 import mysql from "mysql2/promise";
 
-const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASS = "", DB_NAME } = process.env;
+const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASSWORD = "", DB_NAME } = process.env;
 
 const missing = ["DB_HOST", "DB_USER", "DB_NAME"].filter((k) => !process.env[k]);
 if (missing.length > 0) {
@@ -26,7 +26,7 @@ const line = (label, value) => console.log(`  ${label.padEnd(22)}${value}`);
 
 console.log(`\nResearch Publication Portal — database check`);
 console.log(`  target                ${DB_HOST}:${DB_PORT}/${DB_NAME}`);
-console.log(`  user                  ${DB_USER} (password ${DB_PASS ? "set" : "blank"})\n`);
+console.log(`  user                  ${DB_USER} (password ${DB_PASSWORD ? "set" : "blank"})\n`);
 
 let server;
 try {
@@ -34,7 +34,7 @@ try {
     host: DB_HOST,
     port: Number(DB_PORT),
     user: DB_USER,
-    password: DB_PASS,
+    password: DB_PASSWORD,
     connectTimeout: 8000,
   });
   const [[v]] = await server.query("SELECT VERSION() AS version");
