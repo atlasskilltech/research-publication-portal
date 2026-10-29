@@ -30,7 +30,7 @@ const ADMINS = [
 const MIN_LENGTH = 10;
 const BCRYPT_COST = 12; // must match lib/auth/password.js
 
-const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASS = "", DB_NAME } = process.env;
+const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASSWORD = "", DB_NAME } = process.env;
 const missing = ["DB_HOST", "DB_USER", "DB_NAME"].filter((k) => !process.env[k]);
 if (missing.length > 0) {
   console.error(`Missing required env vars: ${missing.join(", ")}`);
@@ -85,7 +85,7 @@ async function main() {
     host: DB_HOST,
     port: Number(DB_PORT),
     user: DB_USER,
-    password: DB_PASS,
+    password: DB_PASSWORD,
     database: DB_NAME,
   });
 

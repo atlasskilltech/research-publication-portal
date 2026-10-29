@@ -14,7 +14,7 @@
 import mysql from "mysql2/promise";
 import { TABLES } from "../lib/tables.mjs";
 
-const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASS = "", DB_NAME } = process.env;
+const { DB_HOST, DB_PORT = "3306", DB_USER, DB_PASSWORD = "", DB_NAME } = process.env;
 
 const EXPECTED = [TABLES.users, TABLES.verificationTokens, TABLES.sessions];
 
@@ -22,7 +22,7 @@ const conn = await mysql.createConnection({
   host: DB_HOST,
   port: Number(DB_PORT),
   user: DB_USER,
-  password: DB_PASS,
+  password: DB_PASSWORD,
   database: DB_NAME,
 });
 
