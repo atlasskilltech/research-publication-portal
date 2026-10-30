@@ -1,10 +1,10 @@
 # System Architecture Summary — Research Publication Portal..
 
 **Project:** Research Publication Portal — ATLAS SkillTech University
-**Status:** Foundation built (auth + sessions). The shared UI shell exists; authentication and account/session storage are implemented.
+**Status:** Foundation built. The shared UI shell exists; authentication, accounts and sessions run on **Supabase Auth + PostgreSQL**.
 **Companion docs:** `requirements-and-role-matrix.md`, `implementation-roadmap.md`, `open-questions-and-assumptions.md`, and the PDF blueprint (`research-publication-portal-system-architecture-blueprint.pdf`). All must stay consistent.
 
-> **Architecture update (as built).** The database is **MySQL**, accessed **directly via `mysql2/promise`** with parameterized SQL — **no Prisma / no ORM**. The schema is hand-written in `db/schema.sql` (idempotent `CREATE TABLE IF NOT EXISTS`). Authentication is a **custom server-side session** scheme — **no Auth.js / NextAuth, no `AUTH_SECRET`**: a 256-bit random token is set in an httpOnly cookie and only its SHA-256 hash is stored in the MySQL `sessions` table; passwords use **bcryptjs**. Wherever the sections below say PostgreSQL, Prisma, or Auth.js, read MySQL + `mysql2/promise` + custom sessions — those references reflect the original plan and are superseded here.
+> **Architecture update (as built, current).** The datastore is **Supabase PostgreSQL** and authentication is **Supabase Auth** (via `@supabase/ssr`), with access control enforced by **Row Level Security**. User profiles and the admin flag live in `public.profiles`; the schema is versioned in `supabase/migrations/`. There is **no MySQL, no `mysql2`, no ORM, and no custom session or bcrypt code** — those were removed during the Supabase migration. Wherever the sections below mention MySQL, `mysql2/promise`, Prisma, Auth.js, bcryptjs, custom server-side sessions, or object storage, read **Supabase Auth + Supabase PostgreSQL + RLS** (uploaded manuscripts are referenced by link in the current mock UI, with no object storage) — those references reflect the original plan and are superseded here.
 
 ---
 

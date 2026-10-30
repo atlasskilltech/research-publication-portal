@@ -1,11 +1,13 @@
-// Sign-in: verify credentials with bcrypt, then issue a server session.
+// Sign-in: verify credentials with Supabase Auth, which sets the session
+// cookies on the response through the SSR cookie adapter.
+//
+// Response contract is unchanged, so
+// components/auth/LoginForm.jsx needs no changes: 200 `{ ok: true }` on success,
+// a generic 401 `{ error }` on bad credentials, 500 otherwise.
 import { NextResponse } from "next/server";
-import { queryOne, execute } from "@/lib/db";
-import { TABLES } from "@/lib/tables.mjs";
-import { verifyPassword, needsRehash, hashPassword } from "@/lib/auth/password";
+import { createClient } from "@/lib/supabase/server";
 import { validateLogin } from "@/lib/validation";
 import { ValidationError } from "@/lib/errors";
-import { createSession, cookieOptions, SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,28 +29,17 @@ export async function POST(request) {
   }
 
   try {
-    const user = await queryOne(
-      `SELECT \`id\`, \`passwordHash\` FROM \`${TABLES.users}\` WHERE \`email\` = ? LIMIT 1`,
-      [email],
-    );
-    if (!user || !user.passwordHash) return invalid();
-
-    const ok = await verifyPassword(password, user.passwordHash);
-    if (!ok) return invalid();
-
-    // Transparently upgrade a hash stored with a weaker cost factor.
-    if (needsRehash(user.passwordHash)) {
-      const upgraded = await hashPassword(password);
-      await execute(`UPDATE \`${TABLES.users}\` SET \`passwordHash\` = ? WHERE \`id\` = ?`, [upgraded, user.id]);
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      // Bad credentials / unconfirmed email → generic 401. Only an unexpected
+      // transport/server fault should surface as a 500.
+      if (error.status && error.status >= 500) throw error;
+      return invalid();
     }
-
-    // Credentials valid. Any failure beyond here is internal — surface a 500.
-    const { token } = await createSession(user.id);
-    const res = NextResponse.json({ ok: true });
-    res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_SECONDS));
-    return res;
+    return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error("login: error:", e?.code || e?.message);
+    console.error("login: error:", e?.status || e?.message);
     return NextResponse.json(
       { error: "Sign-in is temporarily unavailable. Please try again later." },
       { status: 500 },

@@ -1,19 +1,12 @@
-// Lightweight edge gate for the authenticated (app) routes: redirects to
-// /login when the session cookie is absent. This only avoids rendering for
-// requests that clearly have no session — the authoritative check (a DB lookup
-// of the session token) runs server-side in app/(app)/layout.js, so a forged
-// or stale cookie that passes this gate is still rejected there.
-import { NextResponse } from "next/server";
+// Edge gate for the authenticated (app) routes. It refreshes the Supabase
+// session cookies on every matched request (so a short-lived access token is
+// renewed transparently) and redirects to /login when there is no valid user.
+// The authoritative check still runs server-side in app/(app)/layout.js, so a
+// forged or stale cookie that somehow passes here is still rejected there.
+import { updateSession } from "@/lib/supabase/middleware";
 
-const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || "rpp_session";
-
-export function middleware(request) {
-  if (request.cookies.has(SESSION_COOKIE)) return NextResponse.next();
-
-  const url = request.nextUrl.clone();
-  url.pathname = "/login";
-  url.searchParams.set("callbackUrl", request.nextUrl.pathname + request.nextUrl.search);
-  return NextResponse.redirect(url);
+export async function middleware(request) {
+  return updateSession(request);
 }
 
 export const config = {

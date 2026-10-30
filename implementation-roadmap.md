@@ -1,9 +1,9 @@
 # Implementation Roadmap — Research Publication Portal
 
 **Status:** Planning only — nothing below has been built. Begin coding only after sign-off on `open-questions-and-assumptions.md`.
-**Stack (fixed):** Next.js App Router · JavaScript only · Tailwind CSS v4 · MySQL · direct `mysql2/promise` access (no ORM) · custom server-side session auth (no Auth.js) · object storage + signed URLs.
+**Stack (as built):** Next.js App Router · JavaScript only · Tailwind CSS v4 · **Supabase PostgreSQL** · **Supabase Auth** (`@supabase/ssr`) · **Row Level Security**. (Manuscripts are referenced by link in the current mock UI; no object storage is used.)
 
-> **Architecture update (as built):** the database is **MySQL**, accessed directly with **`mysql2/promise`** (parameterized SQL, no Prisma/ORM). Authentication is a **custom server-side session** scheme (cryptographically random token in an httpOnly cookie, only its SHA-256 hash stored in MySQL — no Auth.js, no `AUTH_SECRET`). Schema lives in `db/schema.sql` (idempotent `CREATE TABLE IF NOT EXISTS`). Earlier references below to PostgreSQL / Prisma / Auth.js describe the original plan and are superseded by this note.
+> **Architecture update (as built, current):** the datastore is **Supabase PostgreSQL** and authentication is **Supabase Auth** (`@supabase/ssr`), with **Row Level Security** enforcing access. User profiles/roles live in `public.profiles`; SQL is versioned in `supabase/migrations/`. There is **no MySQL, no `mysql2`, no ORM, and no custom session or bcrypt code** — removed during the Supabase migration. Earlier references below to MySQL, `mysql2/promise`, PostgreSQL-via-Prisma, Auth.js, bcryptjs, custom sessions, or object storage describe the original plan and are superseded by this note.
 
 Legend: **MVP** = required for a usable first release · **Later** = enhancement.
 
