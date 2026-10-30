@@ -18,7 +18,10 @@
     "supabase:status": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/supabase-status.mjs",
     "supabase:auth-config": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/supabase-auth-config.mjs",
     "supabase:configure-smtp": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/supabase-configure-smtp.mjs",
-    "supabase:test-email": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-email-confirm.mjs"
+    "supabase:test-email": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-email-confirm.mjs",
+    "supabase:diagnose-smtp": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/diagnose-smtp.mjs",
+    "supabase:test-registration": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-registration.mjs",
+    "test:student-check": "node scripts/test-student-check.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

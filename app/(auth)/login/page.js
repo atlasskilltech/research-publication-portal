@@ -13,7 +13,13 @@ const STAGES = [
 ];
 export const metadata = { title: "Sign in — Research Publication Portal" };
 
-export default function LoginPage() {
+const NOTICES = {
+  link_invalid: "That verification link is invalid or has expired. Please sign in, or register again to get a new link.",
+};
+
+export default async function LoginPage({ searchParams }) {
+  const sp = (await searchParams) || {};
+  const notice = NOTICES[sp.notice];
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-2">
       {/* ---- Hero (desktop) ---- */}
@@ -74,6 +80,12 @@ export default function LoginPage() {
           <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">Sign in</p>
           <h2 className="mt-1 font-display text-3xl font-bold text-ink">Back to the desk.</h2>
           <p className="mt-1 text-sm text-muted">Your queue is waiting.</p>
+
+          {notice && (
+            <div className="mt-4 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">
+              {notice}
+            </div>
+          )}
 
           <LoginForm />
 

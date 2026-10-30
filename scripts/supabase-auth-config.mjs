@@ -35,4 +35,7 @@ show("smtp_user");
 show("smtp_admin_email");
 console.log("  smtp_pass set:".padEnd(30), !!c.smtp_pass);
 show("smtp_sender_name");
+console.log("\nURL configuration (for email/auth redirects):");
+show("site_url");
+console.log("  uri_allow_list".padEnd(30), c.uri_allow_list || "(empty)");
 console.log("");
