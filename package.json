@@ -27,14 +27,31 @@
     "test:admin-guards": "node scripts/test-admin-guards.mjs",
     "test:manuscript-files": "node scripts/test-manuscript-files.mjs",
     "test:review-logic": "node scripts/test-review-logic.mjs",
-    "test:review-access": "node scripts/test-review-access.mjs"
+    "test:review-access": "node scripts/test-review-access.mjs",
+    "test:revision-logic": "node scripts/test-revision-logic.mjs",
+    "test:decision-logic": "node scripts/test-decision-logic.mjs",
+    "test:publication-logic": "node scripts/test-publication-logic.mjs",
+    "test:auth-flow": "node scripts/test-auth-flow.mjs",
+    "test:email-service": "node scripts/test-email-service.mjs",
+    "test:dashboard-logic": "node scripts/test-dashboard-logic.mjs",
+    "test:audit-fixes": "node scripts/test-audit-fixes.mjs",
+    "test:admin-roles-sql": "node scripts/test-admin-roles-sql.mjs",
+    "supabase:email-templates": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/supabase-apply-email-templates.mjs",
+    "test:workflow-sql": "node scripts/test-workflow-sql.mjs",
+    "test:notifications": "node scripts/test-notifications.mjs",
+    "test:http-guards": "node scripts/test-http-guards.mjs",
+    "test:email-live": "node --env-file-if-exists=.env.local scripts/test-email-live.mjs",
+    "test:e2e-live": "node --env-file-if-exists=.env.local scripts/test-e2e-live.mjs",
+    "test:auth-live-app": "node --env-file-if-exists=.env.local scripts/test-auth-live-app.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "next": "^15.1.6",
+    "nodemailer": "^6.9.16",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "resend": "^6.37.0",
     "server-only": "^0.0.1"
   },
   "devDependencies": {

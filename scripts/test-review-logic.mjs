@@ -4,6 +4,7 @@
  * and confidential-comment separation. Run: node scripts/test-review-logic.mjs
  */
 import {
+  statusAfterAssignment,
   validateReview, canAssignRole, paperForReviewer, reviewForAuthor, reviewForEditor, TEXT_LIMITS,
 } from "../lib/reviewLogic.js";
 
@@ -45,6 +46,14 @@ check("paperForReviewer strips authors", !("authors" in paperForReviewer({ id: "
   check("reviewForAuthor keeps comments_to_author", reviewForAuthor(r).comments_to_author === "to author");
   check("reviewForEditor KEEPS confidential_to_editor", reviewForEditor(r).confidential_to_editor === "secret");
 }
+
+console.log("\nStatus after assignment:");
+check("peer reviewer starts review", statusAfterAssignment("SUBMITTED", "PEER_REVIEWER") === "UNDER_REVIEW");
+check("desk reviewer starts review", statusAfterAssignment("SUBMITTED", "DESK_REVIEWER") === "UNDER_REVIEW");
+check("SPOC does not start review", statusAfterAssignment("SUBMITTED", "SPOC") === null);
+check("EDITOR does not start review", statusAfterAssignment("SUBMITTED", "EDITOR") === null);
+check("no change once under review", statusAfterAssignment("UNDER_REVIEW", "PEER_REVIEWER") === null);
+check("no change during revision", statusAfterAssignment("REVISION", "PEER_REVIEWER") === null);
 
 console.log(`\n${failures === 0 ? "✓ PASS — peer-review logic is sound." : `✗ FAIL — ${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

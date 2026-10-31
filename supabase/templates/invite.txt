@@ -1,0 +1,19 @@
+Welcome to the Research Publication Portal
+ATLAS SkillTech University
+
+Your registration has been received successfully. To activate your account,
+create a secure password using the link below:
+
+{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=invite
+
+This secure link is intended only for your account and can be used once before
+it expires. If it has expired, request a new setup email from the portal's
+sign-in page.
+
+Didn't register? If you did not create an account on the ATLAS Research
+Publication Portal, you can safely ignore this email - no account will be
+activated without this link. ATLAS staff will never ask for your password.
+
+--
+ATLAS SkillTech University - Research Publication Portal
+Automated message sent to {{ .Email }}. Please do not reply.

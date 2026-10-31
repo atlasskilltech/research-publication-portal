@@ -5,7 +5,7 @@
  * code, and deadline/monitoring summaries.
  * Run: node scripts/test-review-access.mjs
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import {
   isReviewerAssignee, assignmentConflict, assignmentsForViewer, activityForViewer,
   OWNER_VISIBLE_ACTIONS, deadlineState, summarizeReviews,
@@ -69,13 +69,22 @@ console.log("\nReviewer anonymity toward authors:");
   check("admin sees full activity", activityForViewer(act, "admin").length === act.length);
   check("reviewer sees no activity", activityForViewer(act, "reviewer").length === 0);
 
-  // The DB policy (0006) must allow owners exactly the same actions as the code.
+  // The LATEST migration that (re)defines paper_activity_select must allow
+  // owners exactly the same actions as the code.
   const sql = readFileSync(new URL("../supabase/migrations/0006_reviews.sql", import.meta.url), "utf8");
-  const m = sql.match(/action in \(([^)]*)\)/);
+  const sql7 = readFileSync(new URL("../supabase/migrations/0007_revisions.sql", import.meta.url), "utf8");
+  const dir = new URL("../supabase/migrations/", import.meta.url);
+  const latest = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort().reverse()
+    .map((f) => ({ f, text: readFileSync(new URL(f, dir), "utf8") }))
+    .find((x) => /create policy paper_activity_select/.test(x.text));
+  const m = latest?.text.slice(latest.text.indexOf("create policy paper_activity_select")).match(/action in \(([^)]*)\)/);
   const sqlList = m ? m[1].split(",").map((x) => x.trim().replace(/'/g, "")).sort() : [];
-  check("0006 RLS activity allowlist matches OWNER_VISIBLE_ACTIONS",
+  check(`${latest?.f || "?"} RLS activity allowlist matches OWNER_VISIBLE_ACTIONS`,
     JSON.stringify(sqlList) === JSON.stringify([...OWNER_VISIBLE_ACTIONS].sort()), sqlList.join(",") || "not found");
+  check("draft decision events are NOT owner-visible", !OWNER_VISIBLE_ACTIONS.includes("DECISION_CREATED") && !OWNER_VISIBLE_ACTIONS.includes("DECISION_UPDATED"));
   check("0006 reviews RLS has no author/owner branch", /create policy reviews_select[\s\S]*?reviewer = auth\.uid\(\) or public\.current_user_is_admin\(\)\s*\);/.test(sql));
+  check("0007 reviews RLS: own / admin / paper editor only (no author branch)",
+    /create policy reviews_select[\s\S]*?reviewer = auth\.uid\(\) or public\.current_user_is_admin\(\) or public\.current_user_is_paper_editor\(paper_id\)\s*\);/.test(sql7));
 }
 
 console.log("\nDeadlines & monitoring summary:");

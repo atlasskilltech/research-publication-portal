@@ -2,7 +2,9 @@ import Link from "next/link";
 import Image from "next/image";
 import BrandLogo, { AtlasCube } from "@/components/layout/BrandLogo";
 import LoginForm from "@/components/auth/LoginForm";
+import FragmentScrubber from "@/components/auth/FragmentScrubber";
 import { BRAND } from "@/lib/constants";
+import { safeNextPath } from "@/lib/authFlow";
 
 const STAGES = [
   ["01", "Shortlist"],
@@ -13,8 +15,12 @@ const STAGES = [
 ];
 export const metadata = { title: "Sign in — Research Publication Portal" };
 
+// kind: "ok" (green) | "warn" (amber). Keys arrive as ?notice=<key>.
 const NOTICES = {
-  link_invalid: "That verification link is invalid or has expired. Please sign in, or register again to get a new link.",
+  password_created: { kind: "ok", text: "Your password has been created and your account is ready. Sign in with your registered email and new password." },
+  password_reset: { kind: "ok", text: "Your password has been reset. Sign in with your email and new password." },
+  link_invalid: { kind: "warn", text: "That setup link is invalid or has expired. Request a new setup email below." },
+  link_expired: { kind: "warn", text: "That setup link has expired or has already been used. Request a new setup email below." },
 };
 
 export default async function LoginPage({ searchParams }) {
@@ -81,17 +87,24 @@ export default async function LoginPage({ searchParams }) {
           <h2 className="mt-1 font-display text-3xl font-bold text-ink">Back to the desk.</h2>
           <p className="mt-1 text-sm text-muted">Your queue is waiting.</p>
 
+          <FragmentScrubber />
           {notice && (
-            <div className="mt-4 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">
-              {notice}
+            <div role="status" className={`mt-4 rounded-lg border px-3 py-2 text-xs ${notice.kind === "ok" ? "border-ok/30 bg-ok-soft text-ok" : "border-warn/30 bg-warn-soft text-ink"}`}>
+              {notice.text}
             </div>
           )}
 
-          <LoginForm />
+          <LoginForm next={safeNextPath(sp.callbackUrl)} />
 
           <p className="mt-6 text-sm text-muted">
             First submission?{" "}
             <Link href="/register" className="font-semibold text-accent hover:underline">Start here →</Link>
+          </p>
+          <p className="mt-2 text-sm text-muted">
+            <Link href="/auth/forgot-password" className="font-semibold text-accent hover:underline">Forgot password?</Link>
+            {" · "}
+            Registered but never set a password?{" "}
+            <Link href="/auth/resend" className="font-semibold text-accent hover:underline">Resend setup email</Link>
           </p>
         </div>
       </section>

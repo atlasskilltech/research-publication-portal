@@ -29,17 +29,21 @@ export async function GET() {
     // Reviewer-facing paper fields only (no authors).
     const { data: papers } = await admin
       .from("papers")
-      .select("id, title, abstract, keywords, status, created_at")
+      .select("id, title, abstract, keywords, status, current_round, created_at")
       .in("id", ids);
     const paperById = new Map((papers || []).map((p) => [p.id, p]));
 
-    // The caller's OWN reviews only.
+    // The caller's OWN reviews only — for each paper's CURRENT round.
     const { data: myReviews } = await admin
       .from("reviews")
-      .select("paper_id, status, recommendation")
+      .select("paper_id, round, status, recommendation")
       .eq("reviewer", me.id)
       .in("paper_id", ids);
-    const reviewByPaper = new Map((myReviews || []).map((r) => [r.paper_id, r]));
+    const reviewByPaper = new Map(
+      (myReviews || [])
+        .filter((r) => r.round === (paperById.get(r.paper_id)?.current_round ?? 0))
+        .map((r) => [r.paper_id, r]),
+    );
 
     const assignments = (assigns || []).map((a) => {
       const p = paperById.get(a.paper_id);
@@ -53,6 +57,9 @@ export async function GET() {
         abstract: p?.abstract || null,
         keywords: p?.keywords || [],
         paperStatus: p?.status || null,
+        round: p?.current_round ?? 0,
+        isRevision: (p?.current_round ?? 0) > 0,  // revised submission → re-review
+        openForReview: p?.status === "UNDER_REVIEW",
         reviewStatus: r?.status || "PENDING",       // PENDING | DRAFT | SUBMITTED
         myRecommendation: r?.recommendation || null,
       };

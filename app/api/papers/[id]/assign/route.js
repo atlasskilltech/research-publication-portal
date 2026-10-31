@@ -1,14 +1,16 @@
 // Admin-only: assign the next responsible person to a submission. Reuses the
 // EXISTING user_roles vocabulary — the assignee must already hold that role in
 // public.user_roles (no parallel role system). Records the assignment and an
-// audit entry; moves a freshly-submitted paper to UNDER_REVIEW on first assign.
+// audit entry; moves a freshly-submitted paper to UNDER_REVIEW on its first
+// REVIEWER assignment (SPOC/EDITOR assignments don't start review).
 // Blocks conflicts of interest (submitter or a listed author).
 //
 // DELETE removes an assignment, unless that reviewer already submitted a review.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { assignmentConflict, REVIEWER_ROLES } from "@/lib/reviewLogic";
+import { notifyLater } from "@/lib/notifyServer";
+import { assignmentConflict, assignmentBlock, statusAfterAssignment, REVIEWER_ROLES } from "@/lib/reviewLogic";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +45,8 @@ export async function POST(request, { params }) {
 
     const { data: paper } = await admin.from("papers").select("id, status, submitted_by").eq("id", id).maybeSingle();
     if (!paper) return NextResponse.json({ error: "Submission not found." }, { status: 404 });
+    const blocked = assignmentBlock(paper, me.id, role);
+    if (blocked) return NextResponse.json({ error: blocked }, { status: 409 });
 
     const { data: profile } = await admin.from("profiles").select("id, email").eq("id", assignee).maybeSingle();
     if (!profile) return NextResponse.json({ error: "That user does not exist." }, { status: 404 });
@@ -67,14 +71,19 @@ export async function POST(request, { params }) {
 
     const { error: insErr } = await admin
       .from("paper_assignments")
-      .upsert({ paper_id: id, assignee, role, assigned_by: me.id, due_at: dueAt }, { onConflict: "paper_id,assignee,role" });
+      // Re-assigning without a date keeps the existing deadline.
+      .upsert({ paper_id: id, assignee, role, assigned_by: me.id, ...(dueAt ? { due_at: dueAt } : {}) }, { onConflict: "paper_id,assignee,role" });
     if (insErr) throw insErr;
 
-    if (paper.status === "SUBMITTED") {
-      await admin.from("papers").update({ status: "UNDER_REVIEW" }).eq("id", id);
+    // Only a reviewer assignment starts review (conditional update = race-safe).
+    const nextStatus = statusAfterAssignment(paper.status, role);
+    if (nextStatus) {
+      await admin.from("papers").update({ status: nextStatus }).eq("id", id).eq("status", paper.status);
     }
     await admin.from("paper_activity").insert({ paper_id: id, actor: me.id, action: "ASSIGNED", detail: { assignee, role, dueAt } });
 
+    if (REVIEWER_ROLES.includes(role)) notifyLater("REVIEW_ASSIGNED", { paperId: id, assignee, actorId: me.id, dueAt });
+    else if (role === "EDITOR") notifyLater("EDITOR_ASSIGNED", { paperId: id, assignee, actorId: me.id });
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("papers/[id]/assign:", e?.message);
@@ -102,11 +111,15 @@ export async function DELETE(request, { params }) {
 
   try {
     const admin = createAdminClient();
+    const { data: paper } = await admin.from("papers").select("id, submitted_by").eq("id", id).maybeSingle();
+    if (!paper) return NextResponse.json({ error: "Submission not found." }, { status: 404 });
+    if (paper.submitted_by === me.id) return NextResponse.json({ error: "You can't manage assignments on a paper you submitted." }, { status: 409 });
 
     // A submitted review is part of the record — don't orphan it by unassigning.
     if (REVIEWER_ROLES.includes(role)) {
-      const { data: rv } = await admin.from("reviews").select("status").eq("paper_id", id).eq("reviewer", assignee).maybeSingle();
-      if (rv?.status === "SUBMITTED") {
+      // Any round: with multiple rounds there can be several rows, so use limit(1).
+      const { data: rv } = await admin.from("reviews").select("id").eq("paper_id", id).eq("reviewer", assignee).eq("status", "SUBMITTED").limit(1);
+      if (rv?.length) {
         return NextResponse.json({ error: "This reviewer has already submitted a review and cannot be removed." }, { status: 409 });
       }
     }

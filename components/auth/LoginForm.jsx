@@ -9,7 +9,7 @@ import Button from "@/components/ui/Button";
  * LoginForm — the real sign-in form. Same markup/look as the original static
  * form; posts credentials to /api/login and, on success, enters the app.
  */
-export default function LoginForm() {
+export default function LoginForm({ next = "/dashboard" }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -26,7 +26,7 @@ export default function LoginForm() {
         body: JSON.stringify({ email: fd.get("email"), password: fd.get("password") }),
       });
       if (res.ok) {
-        router.push("/dashboard");
+        router.push(next); // already validated server-side (safeNextPath)
         router.refresh();
         return;
       }

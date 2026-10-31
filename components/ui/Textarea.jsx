@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 /**
  * Textarea — labelled multi-line input.
  */
-export default function Textarea({ label, hint, id, className = "", containerClassName = "", rows = 3, ...rest }) {
+export default function Textarea({ label, hint, error, id, className = "", containerClassName = "", rows = 3, ...rest }) {
   const autoId = useId();
   const taId = id || autoId;
   return (
@@ -17,14 +17,16 @@ export default function Textarea({ label, hint, id, className = "", containerCla
       <textarea
         id={taId}
         rows={rows}
+        aria-invalid={error ? true : undefined}
         className={cn(
           "w-full rounded-lg border border-line bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted/60",
           "transition-colors focus:border-brand-light",
+          error && "border-danger",
           className,
         )}
         {...rest}
       />
-      {hint && <p className="text-xs text-muted">{hint}</p>}
+      {error ? <p className="text-xs text-danger">{error}</p> : hint && <p className="text-xs text-muted">{hint}</p>}
     </div>
   );
 }

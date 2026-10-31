@@ -35,6 +35,10 @@ export async function POST(request) {
       // Bad credentials / unconfirmed email → generic 401. Only an unexpected
       // transport/server fault should surface as a 500.
       if (error.status && error.status >= 500) throw error;
+      // Too many attempts: say so (it reveals nothing about the account).
+      if (error.status === 429) {
+        return NextResponse.json({ error: "Too many sign-in attempts. Please wait a few minutes and try again." }, { status: 429 });
+      }
       return invalid();
     }
     return NextResponse.json({ ok: true });

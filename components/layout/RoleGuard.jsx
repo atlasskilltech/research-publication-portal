@@ -30,7 +30,7 @@ export default function RoleGuard({ allow = [], section = "This section", childr
       </p>
       <div className="mt-5 flex flex-col gap-2 sm:flex-row">
         <Button href="/dashboard" variant="primary">Back to dashboard</Button>
-        <Button href="/papers" variant="outline">View papers</Button>
+        <Button href="/dashboard" variant="outline">Go to dashboard</Button>
       </div>
     </div>
   );

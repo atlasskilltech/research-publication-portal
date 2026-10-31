@@ -35,7 +35,8 @@ export async function GET() {
     // Email-confirmation status lives in auth.users, not profiles.
     const confirmed = new Map();
     for (let page = 1; page <= 50; page++) {
-      const { data } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+      const { data, error: lErr } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+      if (lErr || !data?.users) { console.error("admin/users: listUsers failed:", lErr?.status || "no data"); break; } // show users; confirmation status unknown
       data.users.forEach((u) => confirmed.set(u.id, !!u.email_confirmed_at));
       if (data.users.length < 200) break;
     }
@@ -50,7 +51,7 @@ export async function GET() {
       school: p.school_code || null,
       applicationNo: p.application_no || null,
       createdAt: p.created_at,
-      verified: confirmed.get(p.id) ?? false,
+      verified: confirmed.has(p.id) ? confirmed.get(p.id) : null, // null = unknown (Auth list unavailable)
     }));
 
     return NextResponse.json({ users });

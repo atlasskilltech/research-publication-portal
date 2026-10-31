@@ -10,16 +10,19 @@
 // that entirely.
 //
 // Responses:
-//   201 { ok: true, message }                 account invited, email sent
+//   201 { ok: true, message, emailSent }      account invited; emailSent=false →
+//                                              account exists, user should use
+//                                              "Resend setup email" (no duplicate account)
 //   409 { error }                              email or application number already used
 //   422 { error, issues? }                     validation / application number not found
+//   429 { error }                              too many attempts (per IP / per email)
 //   503 { error }                              verification temporarily unavailable
 //   500 { error }                              unexpected fault
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateRegister } from "@/lib/validation";
 import { verifyApplicationNo } from "@/lib/studentCheck";
-import { siteUrl } from "@/lib/config/env";
+import { registerAndInvite, findUserByEmail, registerRateLimit, clientIp } from "@/lib/authServer";
 import { ValidationError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -43,6 +46,11 @@ export async function POST(request) {
   }
 
   const { name, email, baseType, school, applicationNo } = data;
+
+  // Each attempt can create an account and send an email — rate-limit it.
+  if (!registerRateLimit([`ip:${clientIp(request)}`, `email:${email}`])) {
+    return NextResponse.json({ error: "Too many registration attempts. Please wait a few minutes and try again." }, { status: 429 });
+  }
 
   try {
     const admin = createAdminClient();
@@ -85,35 +93,49 @@ export async function POST(request) {
       // status === "exists" → continue.
     }
 
-    // ---- Create the invited (unconfirmed) auth user ----------------------
+    // ---- Existing account? → no duplicate, point to resend ---------------
+    const conflict = () => NextResponse.json(
+      { error: "An account with this email already exists. If you have not set your password yet, use \"Resend setup email\" on the sign-in page.", code: "exists" },
+      { status: 409 },
+    );
+    if (await findUserByEmail(email)) return conflict();
+
+    // ---- Create the invited (unconfirmed) auth user + email it ------------
+    // Application-managed delivery: Supabase creates the account and generates
+    // the one-time token (auth.admin.generateLink — sends no email); we email
+    // OUR /auth/confirm link via Resend; /auth/confirm verifies it server-side.
     // Metadata is consumed by handle_new_user() to populate public.profiles.
-    // redirectTo lands the verification click on our /auth/confirm route, which
-    // establishes the session and forwards to the Create Password page.
-    const { error } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: {
-        name,
-        base_type: baseType, // STUDENT | FACULTY
-        school_code: school,
-        application_no: applicationNo, // null for faculty
-      },
-      redirectTo: `${siteUrl()}/auth/confirm?next=/create-password`,
+    const result = await registerAndInvite(email, {
+      name,
+      base_type: baseType, // STUDENT | FACULTY
+      school_code: school,
+      application_no: applicationNo, // null for faculty
     });
 
-    if (error) {
-      // Already-registered email → neutral conflict (no account enumeration beyond
-      // the fact that the address can't be registered again).
-      if (error.status === 422 || error.status === 409 || CONFLICT_RE.test(error.message || "")) {
-        return NextResponse.json(
-          { error: "An account with this email already exists." },
-          { status: 409 },
-        );
-      }
+    if (!result.ok) {
+      const error = result.error || {};
+      if (error.status === 422 || error.status === 409 || CONFLICT_RE.test(error.message || "")) return conflict();
       throw error;
+    }
+
+    if (!result.emailSent) {
+      // The account exists but delivery failed (provider down / not configured).
+      // The user can recover with "Resend setup email" — no second registration.
+      return NextResponse.json(
+        {
+          ok: true,
+          emailSent: false,
+          message:
+            "Your account was created, but we couldn't send the setup email right now. Please use \"Resend setup email\" on the sign-in page in a few minutes.",
+        },
+        { status: 201 },
+      );
     }
 
     return NextResponse.json(
       {
         ok: true,
+        emailSent: true,
         message:
           "Registration successful. Please check your email to verify your account and create your password.",
       },

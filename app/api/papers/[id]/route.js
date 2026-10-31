@@ -1,13 +1,15 @@
 // Single submission detail. Shape depends on the viewer's relationship, decided
 // server-side:
-//   owner / admin  → full: paper + AUTHORS + manuscript meta + assignments + activity
-//   assigned reviewer → reviewer-facing: paper + manuscript meta (no identity),
-//                       assignments; NEVER authors (double-blind).
+//   owner / admin  → full: paper + AUTHORS + every manuscript version + assignments + activity
+//   assigned user  → reviewer-facing: paper + RELEASED manuscript versions only
+//                    (no filenames), own assignments; NEVER authors (double-blind).
 //   anyone else → 404 (don't reveal existence).
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assignmentsForViewer, activityForViewer, isReviewerAssignee } from "@/lib/reviewLogic";
+import { loadPaperContext } from "@/lib/paperAccess";
+import { permittedVersions, displayStatus } from "@/lib/revisionLogic";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,32 +21,20 @@ export async function GET(_request, { params }) {
 
   try {
     const admin = createAdminClient();
-    const { data: paper, error } = await admin
-      .from("papers")
-      .select("id, title, abstract, keywords, school_code, status, submitted_by, created_at, updated_at")
-      .eq("id", id)
-      .maybeSingle();
-    if (error) throw error;
-    if (!paper) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    const ctx = await loadPaperContext(admin, id, me);
+    if (!ctx) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    const { paper, assignments, isOwner, isAssigned, latest } = ctx;
 
-    const isOwner = paper.submitted_by === me.id;
-    const { data: assigned } = await admin
-      .from("paper_assignments")
-      .select("assignee, role, due_at")
-      .eq("paper_id", id);
-    const isAssigned = (assigned || []).some((a) => a.assignee === me.id);
     const privileged = me.isAdmin || isOwner; // may see author identity
-    const viewerRole = me.isAdmin ? "admin" : isOwner ? "owner" : "reviewer";
+    if (!privileged && !isAssigned) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    // On their own paper an administrator is the AUTHOR (never sees reviewers).
+    const viewerRole = isOwner ? "owner" : me.isAdmin ? "admin" : "reviewer";
 
-    if (!privileged && !isAssigned) {
-      return NextResponse.json({ error: "Not found." }, { status: 404 });
-    }
-
-    const { data: manuscript } = await admin
+    const { data: manuscripts } = await admin
       .from("paper_manuscripts")
-      .select("mime_type, byte_size, original_filename, created_at")
-      .eq("paper_id", id)
-      .maybeSingle();
+      .select("version, mime_type, byte_size, original_filename, created_at")
+      .eq("paper_id", id);
+    const versions = permittedVersions(privileged ? (isOwner ? "owner" : "admin") : "assigned", manuscripts, ctx.released);
 
     const base = {
       id: paper.id,
@@ -53,40 +43,50 @@ export async function GET(_request, { params }) {
       keywords: paper.keywords,
       school: paper.school_code || null,
       status: paper.status,
+      currentRound: paper.current_round,
       createdAt: paper.created_at,
       updatedAt: paper.updated_at,
-      manuscript: manuscript
-        ? {
-            mimeType: manuscript.mime_type,
-            byteSize: manuscript.byte_size,
-            // Original filename can carry identity → only owner/admin see it.
-            originalFilename: privileged ? manuscript.original_filename : null,
-          }
-        : null,
+      // Versions the caller may download. Original filenames can carry
+      // identity → owner/admin only.
+      manuscripts: versions.map((m) => ({
+        version: m.version,
+        mimeType: m.mime_type,
+        byteSize: m.byte_size,
+        uploadedAt: m.created_at,
+        originalFilename: privileged ? m.original_filename : null,
+      })),
       // Admin: all assignments. Owner: roles only (never reviewer identity).
       // Reviewer: only their own rows (can't discover co-reviewers).
-      assignments: assignmentsForViewer(assigned, viewerRole, me.id),
+      assignments: assignmentsForViewer(assignments, viewerRole, me.id),
       viewerRole,
       // Only a PEER/DESK reviewer assignment gets the review form.
-      canReview: isReviewerAssignee(assigned, me.id),
+      canReview: isReviewerAssignee(assignments, me.id),
+      // Admin or the paper's EDITOR manages revision requests.
+      canManage: ctx.canManage,
+      // Minimal revision summary (details come from /revisions, shaped per viewer).
+      revision: latest && (privileged || ctx.canManage)
+        ? { round: latest.round, type: latest.revision_type, status: latest.status, displayStatus: displayStatus(latest), dueAt: latest.due_at }
+        : null,
     };
 
     if (!privileged) {
-      // Reviewer: double-blind — no authors, ever.
+      // Reviewer/editor: double-blind — no authors, ever.
       return NextResponse.json({ paper: base });
     }
 
-    const { data: authors } = await admin
-      .from("paper_authors")
-      .select("full_name, email, affiliation, is_corresponding, author_order")
-      .eq("paper_id", id)
-      .order("author_order", { ascending: true });
-    const { data: activity } = await admin
-      .from("paper_activity")
-      .select("action, detail, actor, created_at")
-      .eq("paper_id", id)
-      .order("created_at", { ascending: false })
-      .limit(50);
+    const [{ data: authors }, { data: activity }] = await Promise.all([
+      admin
+        .from("paper_authors")
+        .select("full_name, email, affiliation, is_corresponding, author_order")
+        .eq("paper_id", id)
+        .order("author_order", { ascending: true }),
+      admin
+        .from("paper_activity")
+        .select("action, detail, actor, created_at")
+        .eq("paper_id", id)
+        .order("created_at", { ascending: false })
+        .limit(100),
+    ]);
 
     return NextResponse.json({
       paper: {

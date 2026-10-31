@@ -1,12 +1,7 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import RoleGuard from "@/components/layout/RoleGuard";
-import ArchiveList from "@/components/manage/ArchiveList";
-
+// The Phase-0 mock archive was superseded by the real public catalogue of
+// published papers.
 export default function ArchivePage() {
-  return (
-    <RoleGuard allow={["administrator", "editor"]} section="Archive">
-      <ArchiveList />
-    </RoleGuard>
-  );
+  redirect("/publications");
 }

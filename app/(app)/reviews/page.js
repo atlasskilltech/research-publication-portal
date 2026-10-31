@@ -58,6 +58,10 @@ function ReviewerView() {
               <div className="mb-2 flex items-center gap-2">
                 <Badge className="bg-brand text-white border-brand">{ROLE_LABEL[a.role] || a.role}</Badge>
                 <Badge className={REVIEW_STATUS[a.reviewStatus] || REVIEW_STATUS.PENDING}>{a.reviewStatus}</Badge>
+                {a.isRevision && <Badge className="bg-warn-soft text-warn border-warn/30">Revised · round {a.round + 1}</Badge>}
+                {!a.openForReview && a.reviewStatus !== "SUBMITTED" && (
+                  <Badge className="bg-soft-2 text-muted border-line">{a.paperStatus === "REVISION" ? "Awaiting revision" : a.paperStatus === "SUBMITTED" ? "Not yet open" : "Review closed"}</Badge>
+                )}
               </div>
               <h2 className="font-display text-lg font-bold text-ink">{a.title}</h2>
               <p className="mt-1 line-clamp-3 text-sm text-muted">{a.abstract || "No abstract."}</p>
@@ -72,7 +76,7 @@ function ReviewerView() {
               </div>
               <div className="mt-4 flex items-center gap-2">
                 <Button href={`/submissions/${a.paperId}`} variant="primary" size="sm">
-                  <Icon name="papers" size={14} /> {a.reviewStatus === "SUBMITTED" ? "View" : a.reviewStatus === "DRAFT" ? "Continue review" : "Start review"}
+                  <Icon name="papers" size={14} /> {a.reviewStatus === "SUBMITTED" || !a.openForReview ? "View" : a.reviewStatus === "DRAFT" ? "Continue review" : a.isRevision ? "Review revision" : "Start review"}
                 </Button>
               </div>
             </Card>

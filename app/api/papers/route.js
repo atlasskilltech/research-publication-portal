@@ -11,9 +11,10 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { notifyLater } from "@/lib/notifyServer";
 import { validatePaperMeta } from "@/lib/validation";
 import { ValidationError } from "@/lib/errors";
-import { validateUpload, newStorageKey, sha256, MAX_BYTES, ALLOWED } from "@/lib/manuscriptFiles";
+import { validateUpload, newStorageKey, sha256, MAX_BYTES, ALLOWED, requestTooLarge } from "@/lib/manuscriptFiles";
 import { saveManuscript, deleteManuscript } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -70,6 +71,9 @@ export async function POST(request) {
   if (!me) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   // ---- Parse multipart form -------------------------------------------------
+  if (requestTooLarge(request.headers)) {
+    return NextResponse.json({ error: "File exceeds the 25 MB limit." }, { status: 413 });
+  }
   let form;
   try {
     form = await request.formData();
@@ -113,7 +117,7 @@ export async function POST(request) {
   }
   // Browsers sometimes omit the type (notably for .doc); fall back to the
   // canonical MIME for the validated extension so the NOT NULL column is safe.
-  const mimeType = (file.type && file.type.trim()) || ALLOWED[verdict.ext].mime;
+  const mimeType = ALLOWED[verdict.ext].mime; // trusted type from the verified signature, never the browser's
 
   // ---- Store the file, then write metadata; clean up the orphan on failure --
   const key = newStorageKey(verdict.ext);
@@ -150,6 +154,7 @@ export async function POST(request) {
 
     await admin.from("paper_activity").insert({ paper_id: paperId, actor: me.id, action: "SUBMITTED", detail: { authors: authorRows.length } });
 
+    notifyLater("SUBMISSION_RECEIVED", { paperId, actorId: me.id });
     return NextResponse.json({ ok: true, id: paperId }, { status: 201 });
   } catch (e) {
     // Compensating cleanup: remove the stored file and any partial paper row

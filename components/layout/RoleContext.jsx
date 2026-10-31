@@ -2,7 +2,6 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ROLES } from "@/lib/constants";
-import { MOCK_USERS } from "@/lib/mock";
 
 const RoleContext = createContext(null);
 const STORAGE_KEY = "rpp.role";
@@ -60,7 +59,7 @@ export function RoleProvider({ sessionUser = null, children }) {
     () =>
       sessionUser
         ? { name: sessionUser.name, email: sessionUser.email, role: realRole }
-        : MOCK_USERS.student,
+        : { name: "", email: "", role: realRole }, // (app) layout redirects before this can render
     [sessionUser, realRole],
   );
 

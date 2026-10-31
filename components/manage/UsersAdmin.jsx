@@ -163,7 +163,7 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
                     {u.name}
                     {isProtected(u) && <Tag className="bg-soft-2 text-muted" icon="lock">PROTECTED</Tag>}
                     {isSelf(u) && <Tag className="bg-soft-2 text-muted">YOU</Tag>}
-                    {!u.verified && <Tag className="bg-warn-soft text-warn">PENDING</Tag>}
+                    {u.verified === false && <Tag className="bg-warn-soft text-warn">PENDING</Tag>}
                   </p>
                   <p className="truncate text-xs text-muted">{u.email}</p>
                 </div>
@@ -196,7 +196,7 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
         {manage && !confirm && (
           <div className="space-y-5">
             <p className="text-sm text-muted">
-              {manage.email} · {manage.verified ? "verified" : "email not yet verified"}
+              {manage.email} · {manage.verified ? "verified" : manage.verified === false ? "email not yet verified" : "verification status unavailable"}
               {manage.applicationNo ? <> · app no. <b className="text-ink">{manage.applicationNo}</b></> : null}
             </p>
 
@@ -247,7 +247,7 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
             </div>
 
             {actionError && <p className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">{actionError}</p>}
-            <p className="rounded-lg bg-soft-2 px-3 py-2 text-xs text-muted">Assigning SPOC / reviewer / editor stores and displays the role; per-paper permissions are unchanged in this build.</p>
+            <p className="rounded-lg bg-soft-2 px-3 py-2 text-xs text-muted">Roles make a person eligible for paper assignments: reviewers can be assigned to review papers, and editors can be assigned as a paper&apos;s editor (decisions and publication) and open the Editorial and Publications dashboards. Removing the Editor role also ends their paper-editor assignments.</p>
           </div>
         )}
 

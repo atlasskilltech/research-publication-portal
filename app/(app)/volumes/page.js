@@ -1,12 +1,7 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import RoleGuard from "@/components/layout/RoleGuard";
-import VolumesBoard from "@/components/manage/VolumesBoard";
-
+// The Phase-0 mock volumes board was superseded by real volume / issue /
+// publication management.
 export default function VolumesPage() {
-  return (
-    <RoleGuard allow={["administrator", "editor"]} section="Volumes">
-      <VolumesBoard />
-    </RoleGuard>
-  );
+  redirect("/publications/manage");
 }

@@ -87,7 +87,7 @@ export default function SubmitPage() {
         <Card className="flex flex-col items-center gap-3 px-6 py-12 text-center">
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-ok-soft text-ok"><Icon name="check" size={26} /></span>
           <h2 className="text-lg font-bold text-ink">Your paper was submitted</h2>
-          <p className="max-w-md text-sm text-muted">It is now in <b>SUBMITTED</b> status. An administrator will assign a SPOC and reviewers.</p>
+          <p className="max-w-md text-sm text-muted">It is now in <b>SUBMITTED</b> status. An administrator will assign reviewers, and you will be notified by email as it progresses.</p>
           <div className="mt-2 flex gap-2">
             <Button href="/submissions" variant="outline">View my submissions</Button>
             <Button onClick={() => { setDone(false); setLoading(false); setAuthors([{ ...blankAuthor(), fullName: user?.name || "" }]); setCorresponding(0); setFileName(""); }}>Submit another</Button>

@@ -20,11 +20,25 @@ function NavLinks({ onNavigate }) {
   if (isReviewer && roleKey !== "administrator" && !items.some((i) => i.href === "/reviews")) {
     items.push({ label: "My Reviews", href: "/reviews", icon: "checks" });
   }
+  // Holders of the EDITOR role get the editorial dashboard (the API scopes it
+  // to papers they're assigned to edit). Admins already have it in their nav.
+  if ((roles || []).includes("EDITOR") && roleKey !== "administrator" && !items.some((i) => i.href === "/editorial")) {
+    items.push({ label: "Editorial", href: "/editorial", icon: "volumes" });
+  }
+  // …and the publication dashboard (scoped server-side to papers they edit).
+  if ((roles || []).includes("EDITOR") && roleKey !== "administrator" && !items.some((i) => i.href === "/publications/manage")) {
+    items.push({ label: "Publications", href: "/publications/manage", icon: "papers" });
+  }
+
+  // Highlight only the most specific match (so /publications/manage doesn't
+  // also light up "Published" at /publications).
+  const matches = (href) => pathname === href || pathname.startsWith(href + "/");
+  const activeHref = items.map((i) => i.href).filter(matches).sort((a, b) => b.length - a.length)[0];
 
   return (
     <nav className="flex flex-col gap-1 px-3" aria-label="Primary">
       {items.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(item.href + "/");
+        const active = item.href === activeHref;
         return (
           <Link
             key={item.href}

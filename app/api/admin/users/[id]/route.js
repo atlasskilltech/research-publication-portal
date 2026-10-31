@@ -25,6 +25,7 @@ const ALLOWED_ROLES = ["ADMINISTRATOR", "SPOC", "DESK_REVIEWER", "PEER_REVIEWER"
 // Map the RPC/trigger's raised tokens to HTTP responses.
 function mapRpcError(message) {
   const m = String(message || "");
+  if (m.includes("RPP_FORBIDDEN")) return { status: 403, error: "Administrator access is required." };
   if (m.includes("RPP_SELF")) return { status: 403, error: "You can't change your own roles." };
   if (m.includes("RPP_PROTECTED")) return { status: 403, error: "This is a protected original admin and can't be demoted." };
   if (m.includes("RPP_LAST_ADMIN")) return { status: 409, error: "Can't remove the last administrator." };
@@ -110,6 +111,18 @@ export async function PATCH(request, { params }) {
       const mapped = mapRpcError(rpcErr.message);
       if (mapped) return NextResponse.json({ error: mapped.error }, { status: mapped.status });
       throw rpcErr;
+    }
+
+    // Removing the EDITOR role also ends their per-paper editor assignments —
+    // otherwise they would keep decision/publication powers on those papers.
+    // (EDITOR assignments carry no review records, so this loses no history.)
+    if (!roles.includes("EDITOR")) {
+      const { data: dropped } = await admin.from("paper_assignments").delete().eq("assignee", id).eq("role", "EDITOR").select("paper_id");
+      if (dropped?.length) {
+        await admin.from("paper_activity").insert(
+          dropped.map((d) => ({ paper_id: d.paper_id, actor: me.id, action: "UNASSIGNED", detail: { assignee: id, role: "EDITOR", reason: "role_removed" } })),
+        );
+      }
     }
 
     const fresh = await getTarget(admin, id);

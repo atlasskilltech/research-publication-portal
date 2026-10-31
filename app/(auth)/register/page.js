@@ -31,6 +31,7 @@ export default function RegisterPage() {
   const [issues, setIssues] = useState({});
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [emailFailed, setEmailFailed] = useState(false);
 
   // Controlled Application Number + its live-verification status.
   const [appNo, setAppNo] = useState("");
@@ -113,6 +114,7 @@ export default function RegisterPage() {
         setLoading(false);
         return;
       }
+      setEmailFailed(data.emailSent === false);
       setDone(true);
     } catch {
       setError("Something went wrong. Please try again.");
@@ -138,12 +140,19 @@ export default function RegisterPage() {
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">Check your inbox</p>
             <h1 className="mt-1 font-display text-3xl font-bold text-ink">Registration successful</h1>
+            {emailFailed ? (
+              <div className="mt-4 rounded-xl border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-ink" role="status">
+                Your account was created, but we couldn&apos;t send the setup email just now. Please{" "}
+                <Link href="/auth/resend" className="font-semibold text-accent hover:underline">resend the setup email</Link> in a few minutes. Don&apos;t register again.
+              </div>
+            ) : (
             <div className="mt-4 rounded-xl border border-ok/30 bg-ok-soft px-4 py-3 text-sm text-ink">
-              Please check your email to verify your account and create your password. The link opens the portal and takes you to set a password.
+              Please check your email to verify your account and create your password. Open the &ldquo;Create Your Password&rdquo; link, press Continue, and choose your password &mdash; then sign in with your email and new password.
             </div>
+            )}
             <p className="mt-4 text-sm text-muted">
               Didn&apos;t get it? Check spam, or{" "}
-              <button type="button" onClick={() => setDone(false)} className="font-semibold text-accent hover:underline">try again</button>.
+              <Link href="/auth/resend" className="font-semibold text-accent hover:underline">resend the setup email</Link>.
             </p>
             <p className="mt-6 text-sm text-muted">
               <Link href="/login" className="font-semibold text-accent hover:underline">← Back to sign in</Link>

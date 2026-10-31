@@ -28,3 +28,6 @@ next-env.d.ts
 
 # editor
 .vscode
+
+# live end-to-end test manifests
+.e2e-manifest-*.json

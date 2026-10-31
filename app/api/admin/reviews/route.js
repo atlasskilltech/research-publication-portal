@@ -31,16 +31,23 @@ export async function GET() {
     const reviewerIds = [...new Set(assigns.map((a) => a.assignee))];
 
     const [{ data: papers }, { data: reviews }, { data: profs }] = await Promise.all([
-      admin.from("papers").select("id, title, status").in("id", paperIds),
-      admin.from("reviews").select("paper_id, reviewer, status, recommendation, submitted_at, updated_at").in("paper_id", paperIds),
+      admin.from("papers").select("id, title, status, current_round, submitted_by").in("id", paperIds),
+      admin.from("reviews").select("paper_id, reviewer, round, status, recommendation, submitted_at, updated_at").in("paper_id", paperIds),
       admin.from("profiles").select("id, name, email").in("id", reviewerIds),
     ]);
     const paperById = new Map((papers || []).map((p) => [p.id, p]));
-    const reviewByKey = new Map((reviews || []).map((r) => [`${r.paper_id}:${r.reviewer}`, r]));
+    // Only each paper's CURRENT round counts toward progress.
+    const reviewByKey = new Map(
+      (reviews || [])
+        .filter((r) => r.round === (paperById.get(r.paper_id)?.current_round ?? 0))
+        .map((r) => [`${r.paper_id}:${r.reviewer}`, r]),
+    );
     const profById = new Map((profs || []).map((p) => [p.id, p]));
 
     const now = new Date();
-    const rows = assigns.map((a) => {
+    // Never show an administrator the reviewers of a paper they authored.
+    const ownPaper = (pid) => paperById.get(pid)?.submitted_by === me.id;
+    const rows = assigns.filter((a) => !ownPaper(a.paper_id)).map((a) => {
       const r = reviewByKey.get(`${a.paper_id}:${a.assignee}`);
       const p = paperById.get(a.paper_id);
       const who = profById.get(a.assignee);
@@ -49,6 +56,7 @@ export async function GET() {
         paperId: a.paper_id,
         paperTitle: p?.title || null,
         paperStatus: p?.status || null,
+        round: p?.current_round ?? 0,
         reviewer: a.assignee,
         reviewerName: who?.name || null,
         reviewerEmail: who?.email || null,
