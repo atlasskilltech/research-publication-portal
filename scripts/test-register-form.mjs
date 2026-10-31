@@ -4,9 +4,9 @@
  * numbers are still rejected. Self-cleaning: any account it creates is deleted.
  *
  * Checks:
- *   /api/student-check 2629885  → 200 ok           (valid, through the app)
+ *   /api/student-check 2507316  → 200 ok           (valid, through the app)
  *   /api/student-check 0000000  → 422              (invalid rejected)
- *   /api/register STUDENT 2629885 → 201            (full form submit succeeds)
+ *   /api/register STUDENT 2507316 → 201            (full form submit succeeds)
  *       → profile has application_no, is_admin=false; then the user is DELETED
  *   /api/register STUDENT 0000000 → 422, no account created (invalid rejected)
  *
@@ -51,20 +51,20 @@ async function main() {
   console.log(`\n=== Registration form path tests (app ${base}) ===\n`);
 
   console.log("Verification pre-check (/api/student-check):");
-  { const r = await post("/api/student-check", { applicationNo: "2629885" });
-    check("valid 2629885 → 200 ok", r.status === 200 && r.json.ok === true, `status ${r.status}`); }
+  { const r = await post("/api/student-check", { applicationNo: "2507316" });
+    check("valid 2507316 → 200 ok", r.status === 200 && r.json.ok === true, `status ${r.status}`); }
   { const r = await post("/api/student-check", { applicationNo: "0000000" });
     check("invalid 0000000 → 422 not found", r.status === 422, `status ${r.status}`); }
 
   console.log("\nFull registration submit (/api/register):");
   const goodEmail = alias("ok");
-  { const r = await post("/api/register", { name: "Form Test", email: goodEmail, baseType: "STUDENT", school: "ISDI", applicationNo: "2629885" });
-    check("valid student 2629885 → 201 created", r.status === 201 && r.json.ok === true, `status ${r.status} ${r.json.error || ""}`);
+  { const r = await post("/api/register", { name: "Form Test", email: goodEmail, baseType: "STUDENT", school: "ISDI", applicationNo: "2507316" });
+    check("valid student 2507316 → 201 created", r.status === 201 && r.json.ok === true, `status ${r.status} ${r.json.error || ""}`);
     const u = await findByEmail(goodEmail);
     if (u) cleanup.push(u.id);
     const { data: prof } = u ? await admin.from("profiles").select("application_no, is_admin, base_type").eq("id", u.id).maybeSingle() : { data: null };
     check("account created, unconfirmed (awaiting email verify)", !!u && !u.email_confirmed_at);
-    check("profile.application_no = 2629885", prof?.application_no === "2629885", String(prof?.application_no));
+    check("profile.application_no = 2507316", prof?.application_no === "2507316", String(prof?.application_no));
     check("is_admin forced false", prof?.is_admin === false);
     check("base_type STUDENT", prof?.base_type === "STUDENT");
   }
@@ -83,7 +83,7 @@ main()
   .catch((e) => { console.error("✖ Test error:", e?.message || e); failures++; })
   .finally(async () => {
     for (const id of cleanup) { try { await admin.auth.admin.deleteUser(id); } catch {} }
-    console.log(`Cleanup: removed ${cleanup.length} test user(s) (frees application number 2629885).`);
+    console.log(`Cleanup: removed ${cleanup.length} test user(s) (frees application number 2507316).`);
     console.log(`\n${failures === 0 ? "✓ PASS — registration form verification works; invalid rejected." : `✗ FAIL — ${failures} check(s) failed.`}\n`);
     process.exit(failures === 0 ? 0 : 1);
   });

@@ -15,6 +15,7 @@ export const config = {
     "/papers/:path*",
     "/submissions/:path*",
     "/submit/:path*",
+    "/reviews/:path*",
     "/activity/:path*",
     "/users/:path*",
     "/volumes/:path*",

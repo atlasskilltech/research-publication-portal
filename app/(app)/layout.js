@@ -16,6 +16,7 @@ export default async function AppLayout({ children }) {
     email: u.email,
     isAdmin: !!u.isAdmin,
     baseType: u.baseType || null,
+    roles: u.roles || [],
   };
 
   return <AppShell sessionUser={sessionUser}>{children}</AppShell>;

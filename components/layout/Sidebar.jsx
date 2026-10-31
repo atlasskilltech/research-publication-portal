@@ -10,8 +10,16 @@ import { useRole } from "@/components/layout/RoleContext";
 
 function NavLinks({ onNavigate }) {
   const pathname = usePathname();
-  const { roleKey } = useRole();
-  const items = navForRole(roleKey);
+  const { roleKey, roles } = useRole();
+  const items = [...navForRole(roleKey)];
+
+  // Capability-aware: a user who holds a reviewer role (but isn't an admin, who
+  // reviews via Submissions) gets a "My Reviews" entry regardless of their
+  // cosmetic base role.
+  const isReviewer = (roles || []).some((r) => r === "PEER_REVIEWER" || r === "DESK_REVIEWER");
+  if (isReviewer && roleKey !== "administrator" && !items.some((i) => i.href === "/reviews")) {
+    items.push({ label: "My Reviews", href: "/reviews", icon: "checks" });
+  }
 
   return (
     <nav className="flex flex-col gap-1 px-3" aria-label="Primary">

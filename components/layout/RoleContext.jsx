@@ -64,6 +64,10 @@ export function RoleProvider({ sessionUser = null, children }) {
     [sessionUser, realRole],
   );
 
+  // Real additional roles from user_roles (e.g. PEER_REVIEWER) — drives
+  // capability-aware navigation, independent of the cosmetic "view as" role.
+  const roles = useMemo(() => sessionUser?.roles || [], [sessionUser]);
+
   const value = useMemo(
     () => ({
       roleKey,
@@ -72,8 +76,9 @@ export function RoleProvider({ sessionUser = null, children }) {
       realRole,
       canSwitch,
       setRole,
+      roles,
     }),
-    [roleKey, canSwitch, realRole, user, setRole],
+    [roleKey, canSwitch, realRole, user, setRole, roles],
   );
 
   return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;

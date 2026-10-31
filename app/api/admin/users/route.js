@@ -22,6 +22,16 @@ export async function GET() {
       .order("created_at", { ascending: false });
     if (error) throw error;
 
+    // Additional roles (ADMINISTRATOR/SPOC/…) live in user_roles, grouped per user.
+    const { data: roleRows, error: rErr } = await admin.from("user_roles").select("user_id, role");
+    if (rErr) throw rErr;
+    const rolesByUser = new Map();
+    (roleRows || []).forEach((r) => {
+      const list = rolesByUser.get(r.user_id) || [];
+      list.push(r.role);
+      rolesByUser.set(r.user_id, list);
+    });
+
     // Email-confirmation status lives in auth.users, not profiles.
     const confirmed = new Map();
     for (let page = 1; page <= 50; page++) {
@@ -36,6 +46,7 @@ export async function GET() {
       email: p.email,
       baseType: p.base_type,
       isAdmin: !!p.is_admin,
+      roles: (rolesByUser.get(p.id) || []).sort(),
       school: p.school_code || null,
       applicationNo: p.application_no || null,
       createdAt: p.created_at,

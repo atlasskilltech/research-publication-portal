@@ -24,7 +24,10 @@
     "supabase:test-admin": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-admin-http.mjs",
     "supabase:test-email-policy": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-email-policy.mjs",
     "test:student-check": "node scripts/test-student-check.mjs",
-    "test:admin-guards": "node scripts/test-admin-guards.mjs"
+    "test:admin-guards": "node scripts/test-admin-guards.mjs",
+    "test:manuscript-files": "node scripts/test-manuscript-files.mjs",
+    "test:review-logic": "node scripts/test-review-logic.mjs",
+    "test:review-access": "node scripts/test-review-access.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
