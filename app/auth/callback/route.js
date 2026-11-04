@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { safeNextPath } from "@/lib/authFlow";
+import { siteUrl } from "@/lib/config/env";
 import { OAUTH_STATE_COOKIE, completeGoogleCallback } from "@/lib/oauthPolicy";
 import {
   googleConfig, consumeState, exchangeCode, verifyIdToken, findIdentity, findUser, linkedSubFor, completeSignIn,
@@ -48,7 +49,12 @@ export async function GET(request) {
   }
   if (result.outcome !== "ok") console.warn("google-auth: sign-in refused:", result.outcome);
 
-  const res = NextResponse.redirect(new URL(result.redirect, request.url), 303);
+  // Resolve against the configured public origin (NEXT_PUBLIC_SITE_URL), NOT
+  // request.url: behind the reverse proxy the request reports the internal
+  // origin (e.g. https://localhost:5630), which would send the browser to
+  // https://localhost:5630/dashboard after sign-in. result.redirect is always a
+  // safe same-site app path (see completeGoogleCallback / safeNextPath).
+  const res = NextResponse.redirect(new URL(result.redirect, siteUrl()), 303);
   res.headers.set("Cache-Control", "no-store");
   res.headers.set("Referrer-Policy", "no-referrer");
   return res;
