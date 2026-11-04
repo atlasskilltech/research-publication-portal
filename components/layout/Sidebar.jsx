@@ -59,7 +59,7 @@ function NavLinks({ onNavigate }) {
   );
 }
 
-function UserCard() {
+function UserCard({ onNavigate }) {
   const { user, role } = useRole();
   return (
     <div className="mx-3 mb-3 rounded-xl border border-line bg-soft/60 p-3">
@@ -69,13 +69,20 @@ function UserCard() {
       <span className={cn("mt-2 inline-flex rounded px-2 py-0.5 text-[10px] font-bold", role.chip)}>
         {role.chipText}
       </span>
+      <Link
+        href="/account"
+        onClick={onNavigate}
+        className="mt-3 flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left text-sm font-semibold text-muted hover:text-ink"
+      >
+        <Icon name="users" size={18} /> Account settings
+      </Link>
       <button
         type="button"
         onClick={async () => {
           await fetch("/api/logout", { method: "POST" });
           window.location.href = "/login"; // full reload clears client state
         }}
-        className="mt-3 flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left text-sm font-semibold text-muted hover:text-ink"
+        className="flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left text-sm font-semibold text-muted hover:text-ink"
       >
         <Icon name="logout" size={18} /> Sign out
       </button>
@@ -92,7 +99,7 @@ function SidebarInner({ onNavigate }) {
       <div className="flex-1 overflow-y-auto scroll-thin py-2">
         <NavLinks onNavigate={onNavigate} />
       </div>
-      <UserCard />
+      <UserCard onNavigate={onNavigate} />
     </div>
   );
 }
@@ -134,7 +141,7 @@ export default function Sidebar({ open, onClose }) {
             <div className="flex-1 overflow-y-auto scroll-thin py-2">
               <NavLinks onNavigate={onClose} />
             </div>
-            <UserCard />
+            <UserCard onNavigate={onClose} />
           </div>
         </aside>
       </div>

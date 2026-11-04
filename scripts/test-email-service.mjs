@@ -239,7 +239,7 @@ console.log("\nRegistration email flow (mock generateLink + mock mail client):")
   check("Supabase refuses (existing account) → no email sent", !linkErr.ok && linkErr.stage === "link" && sent.length === before);
   check("malformed generateLink result → no email", readGeneratedLink({ data: { user: { id: "u" }, properties: {} } }, "invite") === null);
   const reg = read("../app/api/register/route.js");
-  check("register route surfaces emailSent:false with a resend instruction", /emailSent: false/.test(reg) && /Resend setup email/.test(reg));
+  check("registration reports emailSent and never fails on a delivery error", /emailSent = false/.test(read("../lib/registration.js")) && /emailSent/.test(reg));
 }
 
 console.log("\nPassword recovery email flow:");

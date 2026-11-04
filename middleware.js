@@ -15,7 +15,7 @@ const SESSION_COOKIE = "rpp_sid"; // keep in sync with lib/auth/store.mjs
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const APP_PREFIXES = [
   "/dashboard", "/papers", "/submissions", "/submit", "/reviews", "/revisions", "/editorial",
-  "/publications/manage", "/activity", "/users", "/volumes", "/archive", "/import",
+  "/publications/manage", "/activity", "/users", "/volumes", "/archive", "/import", "/account",
 ];
 
 function allowedOrigins(request) {

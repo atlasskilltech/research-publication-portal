@@ -5,6 +5,28 @@ with no Supabase or any other auth service. It is tested locally with real
 RS256 signatures and against a running build, but it is **not yet configured
 with a real Google OAuth client**. Nothing has been committed or deployed.
 
+## Google-first registration (current behaviour)
+
+- **Registration** (student or faculty) creates the account with no password and
+  no setup link. Students still need a unique, verified application number.
+  The account category comes from the registration form; no roles are assigned.
+- **One email** is sent: "Your Research Portal Registration Is Complete", telling
+  the user to sign in with their ATLAS University Google account. It contains no
+  token. If delivery fails, the registration still succeeds.
+- **Sign-in** is Google first. Only verified `@atlasuniversity.edu.in` identities
+  that match an existing account get in. Google never creates accounts and never
+  changes roles. The first Google sign-in marks the email verified.
+- **Optional password:** a signed-in user without a password can add one from
+  **Account settings** (`/account`, API `POST /api/account/password`). It is
+  hashed with Argon2id, never overwrites an existing password, keeps the current
+  session and signs out other devices.
+- **Forgot password** still emails a single-use reset link. It is also how an
+  approved non-university address (which can't use Google) creates a password.
+- Setup links emailed before this change still work.
+
+Tests: `npm run test:google-first` (offline) and
+`node scripts/test-google-first-http.mjs http://localhost:3001` (running app).
+
 ## Redirect URI to register in Google Cloud
 
 ```

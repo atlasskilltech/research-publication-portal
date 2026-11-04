@@ -24,6 +24,7 @@
     "test:http-guards": "node scripts/test-http-guards.mjs",
     "test:google-auth": "node scripts/test-google-auth.mjs",
     "test:google-auth-http": "node scripts/test-google-auth-http.mjs",
+    "test:google-first": "node scripts/test-google-first.mjs",
     "test:email-live": "node --env-file-if-exists=.env.local scripts/test-email-live.mjs",
     "test:e2e-live": "node --env-file-if-exists=.env.local scripts/test-e2e-live.mjs",
     "test:auth-live-app": "node --env-file-if-exists=.env.local scripts/test-auth-live-app.mjs",

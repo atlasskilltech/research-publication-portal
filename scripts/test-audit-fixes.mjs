@@ -30,7 +30,7 @@ console.log("Post-login redirect (callbackUrl) is same-origin only:");
   check("login page passes the sanitised callbackUrl to the form",
     /<LoginForm next=\{safeNextPath\(sp\.callbackUrl\)\} \/>/.test(login) ||
       (/const next = safeNextPath\(sp\.callbackUrl\);/.test(login) && /<LoginForm next=\{next\} \/>/.test(login) &&
-        /<GoogleSignInButton next=\{next\} \/>/.test(login)));
+        /<GoogleSignInButton next=\{next\}( prominent)? \/>/.test(login)));
   check("login form no longer hard-codes /dashboard", !/router\.push\("\/dashboard"\)/.test(read("../components/auth/LoginForm.jsx")));
 }
 
@@ -40,7 +40,7 @@ console.log("\nReset-password expiry offers a RESET link (not a setup link):");
   check("reset_required message exists", typeof LINK_MESSAGES.reset_required === "string" && /reset/i.test(LINK_MESSAGES.reset_required));
   check("/reset-password redirects to status=reset_required", /status=reset_required/.test(read("../app/reset-password/page.js")));
   check("/create-password still uses setup_required", /status=setup_required/.test(read("../app/create-password/page.js")));
-  check("confirm page renders the reset form for reset_required", /purpose=\{failure === "reset_required" \? "reset" : "setup"\}/.test(read("../app/auth/confirm/page.js")));
+  check("confirm page renders the reset form for reset_required", /failure === "reset_required"/.test(read("../app/auth/confirm/page.js")) && /<ResendSetupForm purpose="reset" \/>/.test(read("../app/auth/confirm/page.js")));
   check("form redirects by mode", /reset \? "reset_required" : "setup_required"/.test(read("../components/auth/CreatePasswordForm.jsx")));
 }
 
@@ -50,7 +50,7 @@ console.log("\nRegistration is rate-limited:");
   const reg = read("../app/api/register/route.js");
   const iLimit = reg.indexOf("registerRateLimit(");
   check("register calls registerRateLimit", iLimit > 0);
-  check("…before any account lookup or creation", iLimit > 0 && iLimit < reg.indexOf("findUserByEmail(email)") && iLimit < reg.indexOf("registerAndInvite("));
+  check("…before any account lookup or creation", iLimit > 0 && iLimit < reg.indexOf("registerAccount("));
   check("…and answers 429", /status: 429/.test(reg));
   check("register limiter is separate from the resend limiter", /const registerLimiter = createRateLimiter/.test(read("../lib/authServer.js")));
 }

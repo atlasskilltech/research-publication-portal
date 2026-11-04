@@ -3,7 +3,8 @@ import AuthCard from "@/components/auth/AuthCard";
 import FragmentScrubber from "@/components/auth/FragmentScrubber";
 import ResendSetupForm from "@/components/auth/ResendSetupForm";
 import ConfirmSubmit from "@/components/auth/ConfirmSubmit";
-import { parseVerificationParams, LINK_MESSAGES } from "@/lib/authFlow";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
+import { parseVerificationParams, LINK_MESSAGES, RESET_LINK_MESSAGES } from "@/lib/authFlow";
 import { confirmAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -23,15 +24,20 @@ export default async function ConfirmPage({ searchParams }) {
   const status = typeof sp.status === "string" && LINK_MESSAGES[sp.status] ? sp.status : null;
   const parsed = status ? null : parseVerificationParams(sp);
   const failure = status || (parsed && !parsed.ok ? parsed.reason : null);
+  const resetFailure = failure === "reset_required" || (sp.flow === "reset" && Object.hasOwn(RESET_LINK_MESSAGES, failure || ""));
 
   if (failure) {
     return (
       <AuthCard eyebrow="Link problem" title={failure === "unavailable" ? "Please try again shortly" : "This link can't be used"}>
         <FragmentScrubber />
-        <p className="mt-2 text-sm text-muted" role="alert">{LINK_MESSAGES[failure]}</p>
-        {failure !== "unavailable" && <ResendSetupForm purpose={failure === "reset_required" ? "reset" : "setup"} />}
+        <p className="mt-2 text-sm text-muted" role="alert">{resetFailure && RESET_LINK_MESSAGES[failure] ? RESET_LINK_MESSAGES[failure] : LINK_MESSAGES[failure]}</p>
+        {resetFailure ? (
+          <ResendSetupForm purpose="reset" />
+        ) : failure !== "unavailable" ? (
+          <div className="mt-5"><GoogleSignInButton prominent /></div>
+        ) : null}
         <p className="mt-5 text-center text-sm text-muted">
-          Already set your password? <Link href="/login" className="font-semibold text-accent hover:underline">Sign in</Link>
+          <Link href="/login" className="font-semibold text-accent hover:underline">Go to sign in</Link>
         </p>
       </AuthCard>
     );

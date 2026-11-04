@@ -20,7 +20,7 @@ function GoogleLogo({ className }) {
  * JS only adds the loading state). The server starts the PKCE flow; the
  * university-domain rule is enforced server-side, never here.
  */
-export default function GoogleSignInButton({ next = "/dashboard", disabled = false }) {
+export default function GoogleSignInButton({ next = "/dashboard", disabled = false, prominent = false }) {
   const [pending, setPending] = useState(false);
 
   // Coming back with the browser Back button (bfcache) must not leave the
@@ -54,8 +54,9 @@ export default function GoogleSignInButton({ next = "/dashboard", disabled = fal
         aria-disabled={isDisabled}
         aria-busy={pending}
         className={cn(
-          "inline-flex w-full items-center justify-center gap-3 rounded-lg border border-line bg-white px-5 py-3",
+          "inline-flex w-full items-center justify-center gap-3 rounded-lg border bg-white px-5 py-3",
           "text-base font-semibold text-ink transition-colors select-none hover:bg-soft",
+          prominent ? "border-2 border-brand py-3.5 shadow-sm" : "border-line",
           "focus-visible:outline-2 focus-visible:outline-brand-light",
           isDisabled && "cursor-not-allowed opacity-60",
         )}

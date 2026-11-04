@@ -25,8 +25,13 @@ function PasswordField({ id, label, value, onChange, show, onToggle, error, desc
   );
 }
 
+/**
+ * mode: "setup" (legacy email-link first password) | "reset" (forgot password)
+ *     | "add" (optional password for a signed-in user, from Account settings).
+ */
 export default function CreatePasswordForm({ mode = "setup" }) {
   const reset = mode === "reset";
+  const add = mode === "add";
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -47,22 +52,33 @@ export default function CreatePasswordForm({ mode = "setup" }) {
     if (!check.ok) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/set-password", {
+      const res = await fetch(add ? "/api/account/password" : "/api/set-password", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password, confirm }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data.code === "setup_required") { router.replace(`/auth/confirm?status=${reset ? "reset_required" : "setup_required"}`); return; }
+        if (add && data.code === "signin_required") { router.replace("/login"); return; }
+        if (!add && data.code === "setup_required") { router.replace(`/auth/confirm?status=${reset ? "reset_required" : "setup_required"}`); return; }
         setError(data.error || "Could not set your password.");
         setLoading(false);
         return;
       }
       setDone(true);
+      if (add) { setLoading(false); router.refresh(); return; }
       setTimeout(() => router.replace(`/login?notice=${reset ? "password_reset" : "password_created"}`), 1800);
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
     }
+  }
+
+  if (done && add) {
+    return (
+      <div className="mt-4 rounded-lg border border-ok/30 bg-ok-soft px-4 py-4 text-sm text-ok" role="status">
+        <p className="font-semibold">Password added.</p>
+        <p className="mt-1">You can now sign in with Google or with your email and this password. Other devices were signed out; you stay signed in here.</p>
+      </div>
+    );
   }
 
   if (done) {
@@ -75,7 +91,7 @@ export default function CreatePasswordForm({ mode = "setup" }) {
   }
 
   return (
-    <form className="mt-6 flex flex-col gap-4" onSubmit={onSubmit} noValidate>
+    <form className={add ? "mt-4 flex flex-col gap-4" : "mt-6 flex flex-col gap-4"} onSubmit={onSubmit} noValidate>
       <div>
         <PasswordField id="password" label="New password" value={password} autoComplete="new-password"
           onChange={(e) => setPassword(e.target.value)} show={show.p} onToggle={() => setShow((s) => ({ ...s, p: !s.p }))}
@@ -94,8 +110,8 @@ export default function CreatePasswordForm({ mode = "setup" }) {
         onChange={(e) => setConfirm(e.target.value)} show={show.c} onToggle={() => setShow((s) => ({ ...s, c: !s.c }))}
         error={fieldError?.field === "confirm" ? fieldError.error : ""} />
       {error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">{error}</p>}
-      <Button type="submit" variant="primary" size="lg" full disabled={loading}>
-        {loading ? "Saving…" : reset ? "Update password" : "Create password"}
+      <Button type="submit" variant="primary" size={add ? "md" : "lg"} full={!add} disabled={loading}>
+        {loading ? "Saving…" : reset ? "Update password" : add ? "Set password" : "Create password"}
       </Button>
       <p className="text-xs text-muted">Never share your password. ATLAS staff will never ask for it.</p>
     </form>
