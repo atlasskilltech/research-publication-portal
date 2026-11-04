@@ -10,11 +10,12 @@ import { cookies } from "next/headers";
 import { safeNextPath } from "@/lib/authFlow";
 import { OAUTH_STATE_COOKIE, OAUTH_FLOW_TTL_SECONDS } from "@/lib/oauthPolicy";
 import { beginGoogleSignIn, googleConfig } from "@/lib/googleAuth";
+import { publicUrl } from "@/lib/publicUrl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const toLogin = (request, notice) => NextResponse.redirect(new URL(`/login?notice=${notice}`, request.url), 303);
+const toLogin = (request, notice) => NextResponse.redirect(publicUrl(`/login?notice=${notice}`, request), 303);
 
 export async function POST(request) {
   let next = "/dashboard";
@@ -25,7 +26,10 @@ export async function POST(request) {
   }
 
   const cfg = googleConfig();
-  if (!cfg) return toLogin(request, "google_unavailable");
+  if (!cfg) {
+    console.error("google-auth: not configured — check GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI (must be https://<site>/auth/callback)");
+    return toLogin(request, "google_unavailable");
+  }
   try {
     const { url, state } = await beginGoogleSignIn(next, cfg);
     (await cookies()).set(OAUTH_STATE_COOKIE, state, {
@@ -44,5 +48,5 @@ export async function POST(request) {
 
 // A GET (typed URL, prefetch, crawler) never starts an OAuth flow.
 export function GET(request) {
-  return NextResponse.redirect(new URL("/login", request.url), 303);
+  return NextResponse.redirect(publicUrl("/login", request), 303);
 }

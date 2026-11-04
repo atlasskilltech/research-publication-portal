@@ -10,6 +10,7 @@ import { OAUTH_STATE_COOKIE, completeGoogleCallback } from "@/lib/oauthPolicy";
 import {
   googleConfig, consumeState, exchangeCode, verifyIdToken, findIdentity, findUser, linkedSubFor, completeSignIn,
 } from "@/lib/googleAuth";
+import { publicUrl } from "@/lib/publicUrl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export async function GET(request) {
   }
   if (result.outcome !== "ok") console.warn("google-auth: sign-in refused:", result.outcome);
 
-  const res = NextResponse.redirect(new URL(result.redirect, request.url), 303);
+  const res = NextResponse.redirect(publicUrl(result.redirect, request), 303);
   res.headers.set("Cache-Control", "no-store");
   res.headers.set("Referrer-Policy", "no-referrer");
   return res;
