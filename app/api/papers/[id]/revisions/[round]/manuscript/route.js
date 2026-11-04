@@ -18,7 +18,7 @@ import { attachRevisionManuscript } from "@/lib/services/workflow.mjs";
 import { loadPaperContext } from "@/lib/paperAccess";
 import { canAuthorEdit, mapRpcError } from "@/lib/revisionLogic";
 import { validateUpload, newStorageKey, sha256, MAX_BYTES, ALLOWED, requestTooLarge } from "@/lib/manuscriptFiles";
-import { saveManuscript, deleteManuscript } from "@/lib/storage";
+import { saveManuscript, deleteManuscript, storageErrorReason } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,10 +60,11 @@ export async function POST(request, { params }) {
 
   const key = newStorageKey(verdict.ext);
   try {
-    await saveManuscript(key, buffer);
+    await saveManuscript(key, buffer, mimeType);
   } catch (e) {
-    console.error("revision manuscript storage:", e?.message);
-    return NextResponse.json({ error: "Could not store the manuscript. Please try again." }, { status: 500 });
+    const reason = storageErrorReason(e);
+    console.error("revision manuscript storage:", reason, e?.message);
+    return NextResponse.json({ error: `Could not store the manuscript — ${reason}.`, reason }, { status: 500 });
   }
 
   try {

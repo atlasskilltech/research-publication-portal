@@ -8,12 +8,11 @@
 // (<= the round released for re-review). Without ?version, the latest version
 // the caller may access is served.
 import { NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
 import { getSessionUser } from "@/lib/session";
 import { db, T } from "@/lib/db";
 import { logActivity } from "@/lib/repos/rows.mjs";
 import { neutralDownloadName, mimeForStorageKey } from "@/lib/manuscriptFiles";
-import { manuscriptPath as resolvePath } from "@/lib/storage";
+import { readManuscript } from "@/lib/storage";
 import { loadPaperContext } from "@/lib/paperAccess";
 import { permittedVersions, defaultVersion } from "@/lib/revisionLogic";
 
@@ -49,14 +48,9 @@ export async function GET(request, { params }) {
     }
     if (!m) return NextResponse.json({ error: "No manuscript on file." }, { status: 404 });
 
-    const full = resolvePath(m.storage_key);
-    if (!full) return NextResponse.json({ error: "Unavailable." }, { status: 500 });
-
-    let bytes;
-    try {
-      bytes = await readFile(full);
-    } catch {
-      // Metadata exists but the file is missing (e.g. non-persistent storage lost it).
+    const bytes = await readManuscript(m.storage_key);
+    if (!bytes) {
+      // Metadata exists but the file is missing from storage.
       console.error("manuscript download: file missing for paper", id);
       return NextResponse.json({ error: "The manuscript file is unavailable on the server." }, { status: 410 });
     }

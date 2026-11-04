@@ -19,9 +19,30 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# local env files
-.env*.local
+# env files — real values never go in Git (only the placeholder template)
 .env
+.env.*
+!.env.example
+
+# database backups, dumps and migration exports (may contain personal data /
+# password hashes). Legitimate schema files under docs/legacy-supabase stay tracked.
+*.sql
+*.sql.gz
+*.dump
+!docs/legacy-supabase/migrations/*.sql
+/rpp-backups/
+/backups/
+supabase-export*/
+*-export.json
+
+# private manuscript storage (must live outside the repo; guard against mistakes)
+/manuscripts/
+/uploads/
+
+# credentials
+*.key
+*.p12
+credentials*.json
 
 # typescript/next
 next-env.d.ts
