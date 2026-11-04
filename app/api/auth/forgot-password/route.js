@@ -1,13 +1,13 @@
 // Forgot password. Same neutral answer whether or not the account exists;
 // shares the resend rate limiter (per IP + per address).
-//   verified account   → single-use recovery link (generateLink) → SMTP "Reset your password" → /reset-password
-//   unverified account → a fresh setup invite instead (they never had a password)
+//   any existing account → single-use recovery link → SMTP "Reset your password" → /reset-password
+//     (also the way a user without a password — e.g. a non-Google address — creates one by email)
 //   unknown / not allowed → nothing sent
 //   POST { email } → 200 { ok, message } | 422 | 429
 import { NextResponse } from "next/server";
 import { resendSetupEmail } from "@/lib/authFlow";
 import { isApprovedEmail } from "@/lib/validation";
-import { resendRateLimit, clientIp, findUserByEmail, sendInvite, sendRecovery } from "@/lib/authServer";
+import { resendRateLimit, clientIp, findUserByEmail, sendRecovery, sendSignInInstructions } from "@/lib/authServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export async function POST(request) {
 
   const result = await resendSetupEmail(
     { email: body?.email, ip: clientIp(request), purpose: "reset" },
-    { isApprovedEmail, rateLimit: resendRateLimit, findUserByEmail, sendInvite, sendRecovery },
+    { isApprovedEmail, rateLimit: resendRateLimit, findUserByEmail, sendRecovery, sendSignInInstructions },
   );
   return NextResponse.json(result.body, { status: result.status });
 }

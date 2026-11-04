@@ -7,6 +7,7 @@ import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { AtlasCube } from "@/components/layout/BrandLogo";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 
 const SCHOOLS = [
   { value: "", label: "Select…" },
@@ -32,6 +33,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [emailFailed, setEmailFailed] = useState(false);
+  const [googleSignIn, setGoogleSignIn] = useState(true);
 
   // Controlled Application Number + its live-verification status.
   const [appNo, setAppNo] = useState("");
@@ -115,6 +117,7 @@ export default function RegisterPage() {
         return;
       }
       setEmailFailed(data.emailSent === false);
+      setGoogleSignIn(data.googleSignIn !== false);
       setDone(true);
     } catch {
       setError("Something went wrong. Please try again.");
@@ -138,24 +141,31 @@ export default function RegisterPage() {
 
         {done ? (
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">Check your inbox</p>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">Account created</p>
             <h1 className="mt-1 font-display text-3xl font-bold text-ink">Registration successful</h1>
-            {emailFailed ? (
-              <div className="mt-4 rounded-xl border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-ink" role="status">
-                Your account was created, but we couldn&apos;t send the setup email just now. Please{" "}
-                <Link href="/auth/resend" className="font-semibold text-accent hover:underline">resend the setup email</Link> in a few minutes. Don&apos;t register again.
-              </div>
-            ) : (
-            <div className="mt-4 rounded-xl border border-ok/30 bg-ok-soft px-4 py-3 text-sm text-ink">
-              Please check your email to verify your account and create your password. Open the &ldquo;Create Your Password&rdquo; link, press Continue, and choose your password &mdash; then sign in with your email and new password.
+            <div className="mt-4 rounded-xl border border-ok/30 bg-ok-soft px-4 py-3 text-sm text-ink" role="status">
+              {googleSignIn
+                ? "Your registration is successful. You can now sign in using your ATLAS University Google account."
+                : <>Your registration is successful. This email address can&apos;t use Google sign-in, so create a password from{" "}
+                    <Link href="/auth/forgot-password" className="font-semibold text-accent hover:underline">Forgot password</Link>, then sign in with it.</>}
             </div>
+            {googleSignIn && (
+              <>
+                <div className="mt-6">
+                  <GoogleSignInButton prominent />
+                </div>
+                <p className="mt-4 text-sm text-muted">
+                  You don&apos;t need a password. If you&apos;d like one as well, add it later from Account settings after signing in.
+                </p>
+              </>
             )}
             <p className="mt-4 text-sm text-muted">
-              Didn&apos;t get it? Check spam, or{" "}
-              <Link href="/auth/resend" className="font-semibold text-accent hover:underline">resend the setup email</Link>.
+              {emailFailed
+                ? "We couldn't send the confirmation email just now, but your account is ready. You don't need the email to sign in."
+                : "We've also sent a confirmation email with these instructions."}
             </p>
             <p className="mt-6 text-sm text-muted">
-              <Link href="/login" className="font-semibold text-accent hover:underline">← Back to sign in</Link>
+              <Link href="/login" className="font-semibold text-accent hover:underline">&larr; Back to sign in</Link>
             </p>
           </div>
         ) : (
@@ -208,7 +218,7 @@ export default function RegisterPage() {
               )}
 
               <p className="text-xs text-muted">
-                No password needed now — you&apos;ll set one after verifying your email. Every account starts as a Submitter; an administrator assigns reviewer, SPOC and editor roles per paper.
+                No password needed: after registering, sign in with your ATLAS University Google account. Every account starts as a Submitter; an administrator assigns reviewer, SPOC and editor roles per paper.
               </p>
 
               <Button type="submit" variant="primary" size="lg" full disabled={submitDisabled}>

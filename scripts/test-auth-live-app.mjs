@@ -25,7 +25,7 @@ async function main() {
   const regEmail = h.email("faculty");
   const reg = await post("/api/register", { name: "IT Faculty", email: regEmail, baseType: "FACULTY" });
   check("register faculty → 201", reg.status === 201, `${reg.status} ${reg.data?.error || ""}`);
-  check("SMTP down → account kept, emailSent=false + resend instruction", reg.data?.emailSent === false && /Resend setup email/.test(reg.data?.message || ""));
+  check("SMTP down → account kept, emailSent=false, still tells the user to sign in with Google", reg.data?.emailSent === false && /sign in using your ATLAS University Google account/.test(reg.data?.message || ""));
   const ru = await h.track(regEmail);
   check("FACULTY, never admin, unverified", ru?.base_type === "FACULTY" && ru?.is_admin === false && !ru?.email_confirmed_at);
   const dup = await post("/api/register", { name: "IT Faculty", email: regEmail, baseType: "FACULTY" });
@@ -35,7 +35,7 @@ async function main() {
   const before = await h.db.one(`SELECT COUNT(*) AS n FROM \`${h.T.authTokens}\` WHERE user_id = ?`, [ru.id]);
   const rs = await post("/api/auth/resend", { email: regEmail });
   const after = await h.db.one(`SELECT COUNT(*) AS n, SUM(consumed_at IS NULL) AS live FROM \`${h.T.authTokens}\` WHERE user_id = ?`, [ru.id]);
-  check("resend → 200 neutral; a fresh INVITE replaces the old one (1 live)", rs.status === 200 && Number(after.n) === Number(before.n) + 1 && Number(after.live) === 1);
+  check("resend → 200 neutral; sign-in instructions only, NO token issued", rs.status === 200 && Number(after.n) === Number(before.n) && Number(before.n) === 0);
   const rsUnknown = await post("/api/auth/resend", { email: h.email("ghost") });
   check("resend for unknown email → identical response", rsUnknown.status === rs.status && rsUnknown.data?.message === rs.data?.message);
 

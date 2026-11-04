@@ -1,6 +1,8 @@
 /**
- * Passwordless onboarding, end to end through the running app (MySQL):
- *   register (no password) → email link → GET /auth/confirm (consumes nothing)
+ * LEGACY setup links (emailed before the Google-first change) still work end to
+ * end through the running app (MySQL). Registration itself no longer issues a
+ * link; this suite issues the INVITE token directly, as older emails carried:
+ *   register (no password) → [legacy] email link → GET /auth/confirm (consumes nothing)
  *   → "Continue" (server action) → 30-min SETUP session → /create-password
  *   → /api/set-password → every session revoked → login with the new password.
  *

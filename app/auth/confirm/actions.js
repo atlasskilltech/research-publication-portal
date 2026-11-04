@@ -17,6 +17,8 @@ export async function confirmAction(formData) {
     { verifyOtp, issueSetupProof },
   );
   // redirect() throws NEXT_REDIRECT — keep it outside any try/catch.
-  if (!result.ok) redirect(`/auth/confirm?status=${result.reason}`);
+  // Keep only the (fixed) flow name so an expired RESET link offers a new reset email.
+  const flow = formData.get("flow") === "reset" ? "&flow=reset" : "";
+  if (!result.ok) redirect(`/auth/confirm?status=${result.reason}${flow}`);
   redirect(result.redirect);
 }

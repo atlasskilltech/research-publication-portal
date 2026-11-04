@@ -237,7 +237,7 @@ console.log("\nUnauthorized password updates:");
 }
 
 // ---------------------------------------------------------------------------
-console.log("\nResend setup email & existing accounts:");
+console.log("\nResend (sign-in instructions) & existing accounts:");
 {
   const sent = [];
   const accounts = {
@@ -248,8 +248,9 @@ console.log("\nResend setup email & existing accounts:");
     isApprovedEmail: (e) => e.endsWith("@atlasuniversity.edu.in"),
     rateLimit: () => true,
     findUserByEmail: async (e) => accounts[e] || null,
-    sendInvite: async (e) => { sent.push(["invite", e]); return { error: null }; },
-    sendRecovery: async (e) => { sent.push(["recovery", e]); return { error: null }; },
+    sendSignInInstructions: async (e) => { sent.push(["instructions", e]); return { error: null }; },
+    sendRecovery: async (e, flow) => { sent.push(["recovery", e, flow]); return { error: null }; },
+    sendInvite: async () => { throw new Error("must never send a password-setup invite"); },
     ...over,
   });
   const r = (email, d = deps()) => resendSetupEmail({ email, ip: "1.2.3.4" }, d);
@@ -257,18 +258,16 @@ console.log("\nResend setup email & existing accounts:");
   const unknown = await r("nobody@atlasuniversity.edu.in");
   check("unknown address → neutral 200, nothing sent", unknown.status === 200 && unknown.body.message === RESEND_NEUTRAL && sent.length === 0);
   const pend = await r("Pending@AtlasUniversity.edu.in");
-  check("unverified account → new INVITE (email normalised), neutral reply", sent.at(-1)?.join() === "invite,pending@atlasuniversity.edu.in" && pend.body.message === RESEND_NEUTRAL);
+  check("unverified account → sign-in instructions (email normalised), NO password link", sent.at(-1)?.join() === "instructions,pending@atlasuniversity.edu.in" && pend.body.message === RESEND_NEUTRAL);
   await r("verified@atlasuniversity.edu.in");
-  check("verified account (e.g. never set password) → RECOVERY setup link", sent.at(-1)?.join() === "recovery,verified@atlasuniversity.edu.in");
+  check("verified account → sign-in instructions, NO password link", sent.at(-1)?.join() === "instructions,verified@atlasuniversity.edu.in" && !sent.some((x) => x[0] === "recovery"));
   check("identical response for existing vs unknown (no enumeration)", JSON.stringify(unknown) === JSON.stringify(pend));
-  const before = sent.length;
-  await r("pending@atlasuniversity.edu.in", deps({ sendInvite: async (e) => { sent.push(["invite", e]); return { error: { status: 422 } }; } }));
-  check("re-invite refused → falls back to recovery link", sent.length === before + 2 && sent.at(-1)[0] === "recovery");
   const n = sent.length;
   check("disallowed domain → neutral, nothing sent", (await r("x@gmail-not-allowed.com")).status === 200 && sent.length === n);
   check("upstream error → still neutral 200", (await r("pending@atlasuniversity.edu.in", deps({ findUserByEmail: async () => { throw new Error("db down"); } }))).body.message === RESEND_NEUTRAL);
   check("invalid email → 422", (await r("not-an-email")).status === 422);
-  check("resend never creates accounts (only invite/recovery for existing users)", resendAction(null) === "none");
+  check("resend never creates accounts", resendAction(null) === "none" && resendAction(null, "reset") === "none");
+  check("resend → instructions; forgot password → recovery (reset)", resendAction({}, "setup") === "instructions" && resendAction({}, "reset") === "recovery");
 
   let t = 0;
   const limiter = createRateLimiter({ ip: [5, 15 * 60_000], email: [3, 60 * 60_000] }, () => t);
@@ -288,9 +287,9 @@ console.log("\nResend setup email & existing accounts:");
   await verifyLink(ctaUrl(sb.outbox[0].html).searchParams, { verifyOtp: async (a) => sb.verifyOtp(a), issueSetupProof: async () => {} });
   const dup = await deliverInvite({ email: "dup@atlasuniversity.edu.in" }, mailer(sb, `${PROD}/auth/confirm`));
   check("existing verified account: no duplicate user, no second email", !dup.ok && dup.error?.code === "email_exists" && sb.users.size === 1 && sb.outbox.length === 1);
-  const reg = read("../app/api/register/route.js");
-  check("register checks for an existing account BEFORE generating a link", reg.indexOf("findUserByEmail(email)") > -1 && reg.indexOf("findUserByEmail(email)") < reg.indexOf("registerAndInvite("));
-  check("register route points duplicates to resend", /Resend setup email/.test(read("../app/api/register/route.js")));
+  const reg = read("../lib/registration.js");
+  check("registration checks for an existing account BEFORE creating one", reg.indexOf("deps.findUserByEmail(email)") > -1 && reg.indexOf("deps.findUserByEmail(email)") < reg.indexOf("deps.createAccount("));
+  check("register route points duplicates to Google sign-in", /Sign in with your ATLAS University Google account/.test(reg));
 }
 
 // ---------------------------------------------------------------------------
@@ -311,7 +310,7 @@ console.log("\nEnvironment-specific redirect URLs:");
   check("production email contains no localhost link", !/localhost|127\.0\.0\.1/.test(sbProd.outbox[0].html));
   const authServer = read("../lib/authServer.js");
   check("server refuses the accidental localhost fallback in production", /production: process\.env\.NODE_ENV === "production" && !process\.env\.NEXT_PUBLIC_SITE_URL/.test(authServer));
-  check("all auth emails share one redirect helper (mailerDeps → authEmailRedirect)", /redirectBase: authEmailRedirect\(\)/.test(authServer) && /registerAndInvite\(/.test(read("../app/api/register/route.js")));
+  check("all token emails share one redirect helper (mailerDeps → authEmailRedirect)", /redirectBase: authEmailRedirect\(\)/.test(authServer) && /registrationDeps\(\)/.test(read("../app/api/register/route.js")));
   check("auth emails have a single sender (the app's SMTP mailer)", !/inviteUserByEmail|resetPasswordForEmail|supabase/i.test(authServer + read("../app/api/register/route.js")));
 }
 

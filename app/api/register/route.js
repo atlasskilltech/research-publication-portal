@@ -1,35 +1,27 @@
-// Public self-registration — passwordless. The user never chooses a password
-// here; we create the MySQL account in an unverified state and email them a
-// single-use verification link. Clicking it verifies the email and sends them
-// to the Create Password page. Every new account is a non-admin Submitter:
-// lib/repos/users.createRegisteredUser hard-codes isAdmin = 0 and writes no
-// role, so privilege can never arrive from the client.
+// Public self-registration — Google-first, passwordless.
 //
-// Students must pass Application Number verification (checked server-side here,
-// never trusting any client result) and the number must be unique. Faculty skip
-// that entirely.
+// Students and faculty register as before (same validation; students must pass
+// the unique + verified Application Number check). The account is created
+// ACTIVE, non-admin, with NO roles and NO password, and the user receives ONE
+// "registration complete — sign in with your ATLAS University Google account"
+// email. No verification link, no password-creation email, no setup page.
+// Rules live in lib/registration.js (pure, unit-tested).
 //
 // Responses:
-//   201 { ok: true, message, emailSent }      account invited; emailSent=false →
-//                                              account exists, user should use
-//                                              "Resend setup email" (no duplicate account)
-//   409 { error }                              email or application number already used
-//   422 { error, issues? }                     validation / application number not found
-//   429 { error }                              too many attempts (per IP / per email)
-//   503 { error }                              verification temporarily unavailable
-//   500 { error }                              unexpected fault
+//   201 { ok: true, message, emailSent, googleSignIn }
+//   409 { error, code? }      email or application number already registered
+//   422 { error, issues? }    validation / application number not found
+//   429 { error }             too many attempts (per IP / per email)
+//   503 { error }             application-number verification unavailable
+//   500 { error }             unexpected fault
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { findUserByApplicationNo } from "@/lib/repos/users.mjs";
 import { validateRegister } from "@/lib/validation";
-import { verifyApplicationNo } from "@/lib/studentCheck";
-import { registerAndInvite, findUserByEmail, registerRateLimit, clientIp } from "@/lib/authServer";
 import { ValidationError } from "@/lib/errors";
+import { registerAccount } from "@/lib/registration";
+import { registrationDeps, registerRateLimit, clientIp } from "@/lib/authServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const CONFLICT_RE = /already|registered|exists|duplicate/i;
 
 export async function POST(request) {
   let data;
@@ -46,94 +38,17 @@ export async function POST(request) {
     throw error;
   }
 
-  const { name, email, baseType, school, applicationNo } = data;
-
   // Each attempt can create an account and send an email — rate-limit it.
-  if (!registerRateLimit([`ip:${clientIp(request)}`, `email:${email}`])) {
+  if (!registerRateLimit([`ip:${clientIp(request)}`, `email:${data.email}`])) {
     return NextResponse.json({ error: "Too many registration attempts. Please wait a few minutes and try again." }, { status: 429 });
   }
 
   try {
-    // ---- Student-only: duplicate guard + external verification -----------
-    if (baseType === "STUDENT") {
-      // Prevent two accounts for the same application number. The DB also has a
-      // unique index as the hard backstop; this gives a clean 409 first.
-      // Both sides are already normalised (upper-cased, whitespace-stripped),
-      // so an exact match is correct and avoids ilike wildcard characters.
-      if (await findUserByApplicationNo(db, applicationNo)) {
-        return NextResponse.json(
-          { error: "This application number is already registered." },
-          { status: 409 },
-        );
-      }
-
-      const check = await verifyApplicationNo(applicationNo);
-      if (check.status === "not_found") {
-        return NextResponse.json(
-          {
-            error: "We couldn't verify that application number.",
-            issues: { applicationNo: "This application number was not found." },
-          },
-          { status: 422 },
-        );
-      }
-      if (check.status === "unavailable") {
-        return NextResponse.json(
-          { error: "Verification is temporarily unavailable. Please try again shortly." },
-          { status: 503 },
-        );
-      }
-      // status === "exists" → continue.
+    const result = await registerAccount(data, registrationDeps());
+    if (result.status === 201 && !result.body.emailSent) {
+      console.warn("register: confirmation email not delivered (account created)");
     }
-
-    // ---- Existing account? → no duplicate, point to resend ---------------
-    const conflict = () => NextResponse.json(
-      { error: "An account with this email already exists. If you have not set your password yet, use \"Resend setup email\" on the sign-in page.", code: "exists" },
-      { status: 409 },
-    );
-    if (await findUserByEmail(email)) return conflict();
-
-    // ---- Create the invited (unconfirmed) auth user + email it ------------
-    // generateLink creates the account + a single-use token in one transaction
-    // (sends no email); we email OUR /auth/confirm link over SMTP; /auth/confirm
-    // verifies it server-side. A race on email/application number hits the
-    // unique keys and comes back as a conflict.
-    const result = await registerAndInvite(email, {
-      name,
-      base_type: baseType, // STUDENT | FACULTY
-      school_code: school,
-      application_no: applicationNo, // null for faculty
-    });
-
-    if (!result.ok) {
-      const error = result.error || {};
-      if (error.status === 422 || error.status === 409 || CONFLICT_RE.test(error.message || "")) return conflict();
-      throw error;
-    }
-
-    if (!result.emailSent) {
-      // The account exists but delivery failed (provider down / not configured).
-      // The user can recover with "Resend setup email" — no second registration.
-      return NextResponse.json(
-        {
-          ok: true,
-          emailSent: false,
-          message:
-            "Your account was created, but we couldn't send the setup email right now. Please use \"Resend setup email\" on the sign-in page in a few minutes.",
-        },
-        { status: 201 },
-      );
-    }
-
-    return NextResponse.json(
-      {
-        ok: true,
-        emailSent: true,
-        message:
-          "Registration successful. Please check your email to verify your account and create your password.",
-      },
-      { status: 201 },
-    );
+    return NextResponse.json(result.body, { status: result.status });
   } catch (e) {
     console.error("register: error:", e?.code || e?.status || e?.message);
     return NextResponse.json(

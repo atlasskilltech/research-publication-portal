@@ -1,8 +1,8 @@
 /**
  * Exercises the REAL registration form path against the running app: the
  * student Application-Number verification works end-to-end, invalid numbers
- * are rejected, and the created account is a non-admin, unverified,
- * passwordless STUDENT in MySQL. Self-cleaning.
+ * are rejected, and the created account is a non-admin, passwordless STUDENT
+ * in MySQL with NO setup token (Google-first registration). Self-cleaning.
  *
  *   /api/student-check 2507316  → 200 ok           (valid, through the app)
  *   /api/student-check 0000000  → 422              (invalid rejected)
@@ -37,11 +37,11 @@ async function main() {
     check("valid student 2507316 → 201 created", r.status === 201 && r.data?.ok === true, `status ${r.status} ${r.data?.error || ""}`);
     const u = await h.track(goodEmail);
     const row = u ? await h.db.one(`SELECT applicationNo, isAdmin, baseType, emailVerified, passwordHash, status FROM \`${h.T.users}\` WHERE id = ?`, [u.id]) : null;
-    check("account created, unverified (awaiting email), no password", !!row && !row.emailVerified && row.passwordHash === null);
+    check("account created, no password (Google-first), email verified only at first Google sign-in", !!row && !row.emailVerified && row.passwordHash === null);
     check("applicationNo = 2507316", row?.applicationNo === "2507316", String(row?.applicationNo));
     check("isAdmin forced false, no roles", row?.isAdmin === false && Number((await h.db.one(`SELECT COUNT(*) AS n FROM \`${h.T.userRoles}\` WHERE user_id = ?`, [u?.id])).n) === 0);
     check("baseType STUDENT, status ACTIVE", row?.baseType === "STUDENT" && row?.status === "ACTIVE");
-    check("a single-use INVITE token was issued (hash only stored)", !!(await h.db.one(`SELECT 1 AS x FROM \`${h.T.authTokens}\` WHERE user_id = ? AND purpose = 'INVITE' AND consumed_at IS NULL`, [u?.id])));
+    check("NO password-setup / verification token issued (Google-first)", !(await h.db.one(`SELECT 1 AS x FROM \`${h.T.authTokens}\` WHERE user_id = ?`, [u?.id])));
   }
   {
     const r = await post("/api/register", { name: "Dup", email: h.email("dup"), baseType: "STUDENT", school: "ISDI", applicationNo: " 2507316 " });
