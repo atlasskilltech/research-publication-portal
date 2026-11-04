@@ -2,7 +2,7 @@
   "name": "research-publication-portal",
   "version": "0.1.0",
   "private": true,
-  "description": "ATLAS SkillTech University — Research Publication Portal (Next.js + MySQL).",
+  "description": "ATLAS SkillTech University \u2014 Research Publication Portal (Next.js + MySQL).",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -32,7 +32,8 @@
     "db:backup": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/db-backup.mjs",
     "db:set-password": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/set-user-password.mjs",
     "db:import-supabase-export": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migration/import-supabase-export.mjs",
-    "test:mysql": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-mysql-integration.mjs"
+    "test:mysql": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-mysql-integration.mjs",
+    "storage:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/storage-check.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1161.0",
