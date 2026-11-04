@@ -125,9 +125,9 @@ export async function POST(request) {
   // ---- Store the file, then write metadata in one transaction --------------
   const key = newStorageKey(verdict.ext);
   try {
-    await saveManuscript(key, buffer);
+    await saveManuscript(key, buffer, mimeType);
   } catch (e) {
-    console.error("papers POST: storage:", e?.message);
+    console.error("papers POST: storage:", e?.name, e?.message);
     return NextResponse.json({ error: "Could not store the manuscript. Please try again." }, { status: 500 });
   }
 

@@ -35,6 +35,7 @@
     "test:mysql": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-mysql-integration.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
     "@node-rs/argon2": "^2.2.2",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.15",

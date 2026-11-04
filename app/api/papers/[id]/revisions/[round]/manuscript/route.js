@@ -60,9 +60,9 @@ export async function POST(request, { params }) {
 
   const key = newStorageKey(verdict.ext);
   try {
-    await saveManuscript(key, buffer);
+    await saveManuscript(key, buffer, mimeType);
   } catch (e) {
-    console.error("revision manuscript storage:", e?.message);
+    console.error("revision manuscript storage:", e?.name, e?.message);
     return NextResponse.json({ error: "Could not store the manuscript. Please try again." }, { status: 500 });
   }
 
