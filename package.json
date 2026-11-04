@@ -2,7 +2,7 @@
   "name": "research-publication-portal",
   "version": "0.1.0",
   "private": true,
-  "description": "ATLAS SkillTech University \u2014 Research Publication Portal (Next.js + MySQL).",
+  "description": "ATLAS SkillTech University — Research Publication Portal (Next.js + MySQL).",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
