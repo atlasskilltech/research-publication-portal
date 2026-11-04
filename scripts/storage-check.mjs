@@ -12,21 +12,24 @@ import path from "node:path";
 
 const env = process.env;
 const set = (n) => (env[n] && env[n].trim() ? "set" : "MISSING");
-const bucket = (env.S3_BUCKET || env.AWS_S3_BUCKET || env.AWS_BUCKET_NAME || env.AWS_BUCKET || "").trim();
+const pick = (...n) => { for (const k of n) if (env[k] && env[k].trim()) return env[k].trim(); return ""; };
+const bucket = pick("S3_BUCKET", "S3_BUCKET_NAME", "AWS_S3_BUCKET", "AWS_S3_BUCKET_NAME", "AWS_BUCKET_NAME", "AWS_BUCKET", "BUCKET_NAME");
+const accessKeyId = pick("AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY", "S3_ACCESS_KEY_ID", "S3_ACCESS_KEY", "AWS_S3_ACCESS_KEY_ID", "AWS_S3_ACCESS_KEY");
+const secretAccessKey = pick("AWS_SECRET_ACCESS_KEY", "AWS_SECRET_KEY", "S3_SECRET_ACCESS_KEY", "S3_SECRET_KEY", "AWS_S3_SECRET_ACCESS_KEY", "AWS_S3_SECRET_KEY");
 
 console.log("Variables:");
-for (const n of ["S3_BUCKET", "AWS_S3_BUCKET", "AWS_BUCKET_NAME", "AWS_BUCKET", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "S3_PREFIX", "MANUSCRIPT_STORAGE_DIR"]) {
+for (const n of ["S3_BUCKET", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "S3_PREFIX", "MANUSCRIPT_STORAGE_DIR"]) {
   console.log(`  ${n.padEnd(24)} ${set(n)}`);
 }
 const s3Names = Object.keys(env).filter((k) => /S3|AWS|BUCKET/i.test(k));
 console.log("  (all S3/AWS-looking names in env:", s3Names.join(", ") || "none", ")");
 
 if (bucket) {
-  const region = (env.AWS_REGION || env.AWS_DEFAULT_REGION || env.S3_REGION || "ap-south-1").trim();
+  const region = pick("AWS_REGION", "AWS_DEFAULT_REGION", "S3_REGION", "AWS_S3_REGION", "AWS_BUCKET_REGION") || "ap-south-1";
   let prefix = env.S3_PREFIX === undefined ? "manuscripts/" : env.S3_PREFIX.trim();
   if (prefix && !prefix.endsWith("/")) prefix += "/";
   console.log(`\nMode: S3  bucket=${bucket} region=${region} prefix=${prefix}`);
-  const c = new S3Client({ region, ...(env.S3_ENDPOINT ? { endpoint: env.S3_ENDPOINT, forcePathStyle: true } : {}) });
+  const c = new S3Client({ region, followRegionRedirects: true, ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}), ...(env.S3_ENDPOINT ? { endpoint: env.S3_ENDPOINT, forcePathStyle: true } : {}) });
   const Key = `${prefix}_storage-check-${Date.now()}.txt`;
   const step = async (name, fn) => {
     try { await fn(); console.log(`  ✓ ${name}`); return true; } catch (e) {
@@ -34,7 +37,7 @@ if (bucket) {
       return false;
     }
   };
-  const ok = await step("upload (PutObject)", () => c.send(new PutObjectCommand({ Bucket: bucket, Key, Body: "ok", ContentType: "text/plain", ServerSideEncryption: "AES256", IfNoneMatch: "*" })))
+  const ok = await step("upload (PutObject)", () => c.send(new PutObjectCommand({ Bucket: bucket, Key, Body: "ok", ContentType: "text/plain", })))
     && await step("download (GetObject)", async () => { const o = await c.send(new GetObjectCommand({ Bucket: bucket, Key })); await o.Body.transformToString(); })
     && await step("delete (DeleteObject)", () => c.send(new DeleteObjectCommand({ Bucket: bucket, Key })));
   console.log(ok ? "\n✓ S3 storage works." : "\n✗ S3 storage is NOT working — see the error above.");

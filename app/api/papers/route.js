@@ -18,7 +18,7 @@ import { notifyLater } from "@/lib/notifyServer";
 import { validatePaperMeta } from "@/lib/validation";
 import { ValidationError } from "@/lib/errors";
 import { validateUpload, newStorageKey, sha256, MAX_BYTES, ALLOWED, requestTooLarge } from "@/lib/manuscriptFiles";
-import { saveManuscript, deleteManuscript } from "@/lib/storage";
+import { saveManuscript, deleteManuscript, storageErrorReason } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -127,8 +127,9 @@ export async function POST(request) {
   try {
     await saveManuscript(key, buffer, mimeType);
   } catch (e) {
-    console.error("papers POST: storage:", e?.name, e?.message);
-    return NextResponse.json({ error: "Could not store the manuscript. Please try again." }, { status: 500 });
+    const reason = storageErrorReason(e);
+    console.error("papers POST: storage:", reason, e?.message);
+    return NextResponse.json({ error: `Could not store the manuscript — ${reason}.`, reason }, { status: 500 });
   }
 
   const paperId = uuid();
