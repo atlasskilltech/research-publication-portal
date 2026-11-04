@@ -6,7 +6,8 @@
 //   anyone else → 404 (don't reveal existence).
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T } from "@/lib/db";
+import { jrows } from "@/lib/repos/rows.mjs";
 import { assignmentsForViewer, activityForViewer, isReviewerAssignee } from "@/lib/reviewLogic";
 import { loadPaperContext } from "@/lib/paperAccess";
 import { permittedVersions, displayStatus } from "@/lib/revisionLogic";
@@ -20,8 +21,7 @@ export async function GET(_request, { params }) {
   const { id } = await params;
 
   try {
-    const admin = createAdminClient();
-    const ctx = await loadPaperContext(admin, id, me);
+    const ctx = await loadPaperContext(db, id, me);
     if (!ctx) return NextResponse.json({ error: "Not found." }, { status: 404 });
     const { paper, assignments, isOwner, isAssigned, latest } = ctx;
 
@@ -30,10 +30,8 @@ export async function GET(_request, { params }) {
     // On their own paper an administrator is the AUTHOR (never sees reviewers).
     const viewerRole = isOwner ? "owner" : me.isAdmin ? "admin" : "reviewer";
 
-    const { data: manuscripts } = await admin
-      .from("paper_manuscripts")
-      .select("version, mime_type, byte_size, original_filename, created_at")
-      .eq("paper_id", id);
+    const manuscripts = await db.query(
+      `SELECT version, mime_type, byte_size, original_filename, created_at FROM \`${T.paperManuscripts}\` WHERE paper_id = ?`, [id]);
     const versions = permittedVersions(privileged ? (isOwner ? "owner" : "admin") : "assigned", manuscripts, ctx.released);
 
     const base = {
@@ -74,18 +72,15 @@ export async function GET(_request, { params }) {
       return NextResponse.json({ paper: base });
     }
 
-    const [{ data: authors }, { data: activity }] = await Promise.all([
-      admin
-        .from("paper_authors")
-        .select("full_name, email, affiliation, is_corresponding, author_order")
-        .eq("paper_id", id)
-        .order("author_order", { ascending: true }),
-      admin
-        .from("paper_activity")
-        .select("action, detail, actor, created_at")
-        .eq("paper_id", id)
-        .order("created_at", { ascending: false })
-        .limit(100),
+    const [authors, activity] = await Promise.all([
+      db.query(
+        `SELECT full_name, email, affiliation, is_corresponding, author_order FROM \`${T.paperAuthors}\` WHERE paper_id = ? ORDER BY author_order ASC`,
+        [id],
+      ),
+      db.query(
+        `SELECT action, detail, actor, created_at FROM \`${T.paperActivity}\` WHERE paper_id = ? ORDER BY created_at DESC LIMIT 100`,
+        [id],
+      ).then(jrows),
     ]);
 
     return NextResponse.json({
@@ -100,7 +95,7 @@ export async function GET(_request, { params }) {
       },
     });
   } catch (e) {
-    console.error("papers/[id] GET:", e?.message);
+    console.error("papers/[id] GET:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not load the submission." }, { status: 500 });
   }
 }

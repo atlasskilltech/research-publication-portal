@@ -4,7 +4,7 @@ import { getSessionUser } from "@/lib/session";
 /**
  * Layout for the signed-out routes (/login, /register).
  *
- * If a valid Supabase session already exists, send the user straight to the
+ * If a valid session already exists, send the user straight to the
  * dashboard instead of showing the auth forms. This is what makes the browser
  * Back button behave: after signing in and landing on /dashboard, pressing Back
  * returns to /login, and without this check the sign-in form would reappear —

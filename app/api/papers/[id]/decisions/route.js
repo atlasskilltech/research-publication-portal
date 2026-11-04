@@ -6,11 +6,13 @@
 //          revision deadline. Never confidential notes or identities.
 //          anyone else (incl. reviewers): 404.
 //   POST — manager saves (creates/updates) the current round's UNRELEASED
-//          decision via save_editorial_decision() (0008). Communicating it is a
-//          separate step: POST .../decisions/[decisionId]/release.
+//          decision via saveEditorialDecision (lib/services/workflow.mjs, one
+//          transaction). Communicating it is a separate step:
+//          POST .../decisions/[decisionId]/release.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T } from "@/lib/db";
+import { usersByIds } from "@/lib/repos/users.mjs";
 import { loadPaperContext } from "@/lib/paperAccess";
 import { validateDecision, decisionForAuthor, decisionForManager } from "@/lib/decisionLogic";
 import { saveDecision } from "@/lib/decisionService";
@@ -24,17 +26,13 @@ export async function GET(_request, { params }) {
   const { id } = await params;
 
   try {
-    const admin = createAdminClient();
-    const ctx = await loadPaperContext(admin, id, me);
+    const ctx = await loadPaperContext(db, id, me);
     if (!ctx || (!ctx.canManage && !ctx.isOwner)) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
     if (ctx.canManage) {
       const people = [...new Set(ctx.decisions.flatMap((d) => [d.decided_by, d.released_by]).filter(Boolean))];
       const nameById = new Map();
-      if (people.length) {
-        const { data: profs } = await admin.from("profiles").select("id, name, email").in("id", people);
-        (profs || []).forEach((p) => nameById.set(p.id, p.name || p.email));
-      }
+      (await usersByIds(db, people)).forEach((p) => nameById.set(p.id, p.name || p.email));
       return NextResponse.json({
         view: "manager",
         paperStatus: ctx.paper.status,
@@ -46,9 +44,9 @@ export async function GET(_request, { params }) {
     // Author: released decisions only.
     const released = ctx.decisions.filter((d) => d.released_at);
     const reviewIds = [...new Set(released.flatMap((d) => d.review_ids || []))];
-    const { data: reviews } = reviewIds.length
-      ? await admin.from("reviews").select("id, status, comments_to_author").in("id", reviewIds)
-      : { data: [] };
+    const reviews = reviewIds.length
+      ? await db.query(`SELECT id, status, comments_to_author FROM \`${T.reviews}\` WHERE id IN (?)`, [reviewIds])
+      : [];
     const revById = new Map(ctx.revisions.map((r) => [r.id, r]));
     const now = new Date();
     return NextResponse.json({
@@ -59,7 +57,7 @@ export async function GET(_request, { params }) {
         .reverse(), // newest first
     });
   } catch (e) {
-    console.error("decisions GET:", e?.message);
+    console.error("decisions GET:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not load decisions." }, { status: 500 });
   }
 }
@@ -75,11 +73,10 @@ export async function POST(request, { params }) {
   if (!v.ok) return NextResponse.json({ error: "Please complete the decision.", issues: v.fields }, { status: 422 });
 
   try {
-    const admin = createAdminClient();
-    const result = await saveDecision(admin, id, me, v.value);
+    const result = await saveDecision(id, me, v.value);
     return NextResponse.json(result.body, { status: result.status });
   } catch (e) {
-    console.error("decisions POST:", e?.message);
+    console.error("decisions POST:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not save the decision." }, { status: 500 });
   }
 }

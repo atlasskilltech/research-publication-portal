@@ -5,7 +5,7 @@
  * code, and deadline/monitoring summaries.
  * Run: node scripts/test-review-access.mjs
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import {
   isReviewerAssignee, assignmentConflict, assignmentsForViewer, activityForViewer,
   OWNER_VISIBLE_ACTIONS, deadlineState, summarizeReviews,
@@ -69,22 +69,24 @@ console.log("\nReviewer anonymity toward authors:");
   check("admin sees full activity", activityForViewer(act, "admin").length === act.length);
   check("reviewer sees no activity", activityForViewer(act, "reviewer").length === 0);
 
-  // The LATEST migration that (re)defines paper_activity_select must allow
-  // owners exactly the same actions as the code.
-  const sql = readFileSync(new URL("../supabase/migrations/0006_reviews.sql", import.meta.url), "utf8");
-  const sql7 = readFileSync(new URL("../supabase/migrations/0007_revisions.sql", import.meta.url), "utf8");
-  const dir = new URL("../supabase/migrations/", import.meta.url);
-  const latest = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort().reverse()
-    .map((f) => ({ f, text: readFileSync(new URL(f, dir), "utf8") }))
-    .find((x) => /create policy paper_activity_select/.test(x.text));
-  const m = latest?.text.slice(latest.text.indexOf("create policy paper_activity_select")).match(/action in \(([^)]*)\)/);
-  const sqlList = m ? m[1].split(",").map((x) => x.trim().replace(/'/g, "")).sort() : [];
-  check(`${latest?.f || "?"} RLS activity allowlist matches OWNER_VISIBLE_ACTIONS`,
-    JSON.stringify(sqlList) === JSON.stringify([...OWNER_VISIBLE_ACTIONS].sort()), sqlList.join(",") || "not found");
+  // There is no SQL activity policy any more (MySQL): every route that returns
+  // activity to a paper owner must filter it through the OWNER_VISIBLE_ACTIONS
+  // allowlist (activityForViewer / shapeActivityFeed).
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const detail = src("../app/api/papers/[id]/route.js");
+  check("paper detail returns activity only via activityForViewer", /activity: activityForViewer\(activity, viewerRole\)/.test(detail));
+  const feedRoute = src("../app/api/activity/route.js");
+  const dash = src("../lib/dashboardLogic.js");
+  check("activity feed route shapes rows via shapeActivityFeed", /shapeActivityFeed\(rows,/.test(feedRoute));
+  check("shapeActivityFeed limits owners to OWNER_VISIBLE_ACTIONS", /OWNER_VISIBLE_ACTIONS/.test(dash.slice(dash.indexOf("export function shapeActivityFeed"))));
+  check("activityForViewer limits owners to OWNER_VISIBLE_ACTIONS", /OWNER_VISIBLE_ACTIONS/.test(src("../lib/reviewLogic.js").slice(src("../lib/reviewLogic.js").indexOf("export function activityForViewer"))));
   check("draft decision events are NOT owner-visible", !OWNER_VISIBLE_ACTIONS.includes("DECISION_CREATED") && !OWNER_VISIBLE_ACTIONS.includes("DECISION_UPDATED"));
-  check("0006 reviews RLS has no author/owner branch", /create policy reviews_select[\s\S]*?reviewer = auth\.uid\(\) or public\.current_user_is_admin\(\)\s*\);/.test(sql));
-  check("0007 reviews RLS: own / admin / paper editor only (no author branch)",
-    /create policy reviews_select[\s\S]*?reviewer = auth\.uid\(\) or public\.current_user_is_admin\(\) or public\.current_user_is_paper_editor\(paper_id\)\s*\);/.test(sql7));
+  // Former reviews RLS (own / admin / paper editor; no author branch) → route guards:
+  const own = src("../app/api/papers/[id]/review/route.js");
+  check("reviewer route: assigned reviewers only, and only their OWN review rows",
+    /!isReviewerAssignee\(ctx\.assignments, me\.id\)/.test(own) && /WHERE paper_id = \? AND reviewer = \?/.test(own));
+  check("all-reviews route: administrator / paper editor only (no author branch)",
+    /if \(!ctx\.canManage\) return NextResponse\.json\(\{ error: "Administrator or editor access is required\." \}, \{ status: 403 \}\)/.test(src("../app/api/papers/[id]/reviews/route.js")));
 }
 
 console.log("\nDeadlines & monitoring summary:");

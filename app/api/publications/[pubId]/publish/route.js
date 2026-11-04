@@ -1,13 +1,15 @@
 // Publish one SCHEDULED paper (admin or the paper's EDITOR). Its issue must be
-// PUBLISHED (which requires a PUBLISHED volume). publish_paper() (0009) locks
-// the records, re-checks the paper is still ACCEPTED (not rejected / revision
-// pending), sets papers.status = PUBLISHED and logs activity, atomically.
+// PUBLISHED (which requires a PUBLISHED volume). publishPaper
+// (lib/services/workflow.mjs) locks the records in one transaction, re-checks
+// the paper is still ACCEPTED (not rejected / revision pending), sets
+// papers.status = PUBLISHED and logs activity, atomically.
 //   POST { expectedVersion }
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T } from "@/lib/db";
 import { notifyLater } from "@/lib/notifyServer";
 import { loadPaperContext } from "@/lib/paperAccess";
+import { publishPaper } from "@/lib/services/workflow.mjs";
 import { canPublishPaper, isUuid, dbErrorToHttp } from "@/lib/publicationLogic";
 
 export const runtime = "nodejs";
@@ -25,19 +27,19 @@ export async function POST(request, { params }) {
   if (!Number.isInteger(expectedVersion) || expectedVersion < 1) return NextResponse.json({ error: "Reload before publishing." }, { status: 422 });
 
   try {
-    const admin = createAdminClient();
-    const { data: pub } = await admin.from("publications").select("id, paper_id, issue_id, status, version").eq("id", pubId).maybeSingle();
+    const pub = await db.one(`SELECT id, paper_id, issue_id, status, version FROM \`${T.publications}\` WHERE id = ?`, [pubId]);
     if (!pub) return NextResponse.json({ error: "Publication not found." }, { status: 404 });
-    const ctx = await loadPaperContext(admin, pub.paper_id, me);
+    const ctx = await loadPaperContext(db, pub.paper_id, me);
     if (!ctx?.canManage) return NextResponse.json({ error: "Only an administrator or the paper's editor can publish this paper." }, { status: 403 });
 
-    const { data: issue } = await admin.from("issues").select("id, status").eq("id", pub.issue_id).maybeSingle();
+    const issue = await db.one(`SELECT id, status FROM \`${T.issues}\` WHERE id = ?`, [pub.issue_id]);
     const pre = canPublishPaper({ publication: pub, paper: ctx.paper, issue });
     if (!pre.ok) return NextResponse.json({ error: pre.error }, { status: pre.status });
     if (pub.version !== expectedVersion) return NextResponse.json({ error: "This record was changed by someone else. Reload and try again." }, { status: 409 });
 
-    const { error } = await admin.rpc("publish_paper", { p_pub: pubId, p_actor: me.id, p_expected_version: expectedVersion });
-    if (error) {
+    try {
+      await publishPaper(db, { pubId, actorId: me.id, expectedVersion });
+    } catch (error) {
       const http = dbErrorToHttp(error);
       if (http) return NextResponse.json({ error: http.error }, { status: http.status });
       throw error;
@@ -45,7 +47,7 @@ export async function POST(request, { params }) {
     notifyLater("PAPER_PUBLISHED", { paperId: pub.paper_id, actorId: me.id, publicPath: `/publications/${pubId}` });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error("publication publish:", e?.message);
+    console.error("publication publish:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not publish the paper." }, { status: 500 });
   }
 }

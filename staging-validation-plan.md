@@ -1,74 +1,78 @@
-# Staging validation plan
+# Validation plan (MySQL)
 
-Production Supabase currently has migrations 0001–0004 and 0010. Everything after
-registration (submissions, reviews, revisions, decisions, publications) needs
-0005–0009 and 0011, which are **not applied**. Do the steps below on a
-**separate staging Supabase project** first — never create test users or papers
-in the shared production project.
+The portal runs on MySQL only. Validate on a **non-production** database first:
+a local MySQL/MariaDB, or a copy of production restored from a backup. Never
+create test users or papers in the production database.
 
-## 1. Verify locally (no network)
+## 1. Offline and unit suites (no server)
 
 ```
-npm i --no-save @electric-sql/pglite@0.5.8
-npm run test:workflow-sql      # all 11 migrations, production order, full workflow under RLS
-npm run test:admin-roles-sql   # 0010 escalation fix
+npm run test:auth-flow
+npm run test:google-auth
+npm run test:admin-guards
+npm run test:manuscript-files
+npm run test:review-logic
+npm run test:review-access
+npm run test:revision-logic
+npm run test:decision-logic
+npm run test:publication-logic
+npm run test:dashboard-logic
+npm run test:audit-fixes
+npm run test:email-service
+npm run test:notifications
 ```
 
-## 2. Create the staging project
+## 2. Database suite (real MySQL, throwaway database)
 
-1. New Supabase project (same region). Note its URL, publishable key, secret key.
-2. A copy of `.env.local` pointing at staging (e.g. `.env.staging`), with
-   `NEXT_PUBLIC_SITE_URL` set to the staging app URL and the Resend variables
-   (`RESEND_API_KEY`, `EMAIL_FROM` on a verified domain, `EMAIL_FROM_NAME`).
-3. Apply every migration to the **empty** staging project (this is the only
-   place `--all` is acceptable):
-   `node --env-file=.env.staging scripts/supabase-apply-migrations.mjs --all`
-4. Auth settings and admins — run the scripts with `node --env-file=.env.staging`
-   directly. **Do not use `npm run …` here: the npm scripts load `.env.local`,
-   which points at production.**
-   ```
-   node --env-file=.env.staging scripts/supabase-auth-config.mjs
-   node --env-file=.env.staging scripts/supabase-apply-email-templates.mjs
-   node --env-file=.env.staging scripts/provision-supabase-admins.mjs
-   ```
-5. Run the app against staging from a **separate copy of the project** whose
-   `.env.local` contains the staging values (safest — nothing can fall back to
-   production). Before testing, confirm `/api/health` reports the staging project ref.
+```
+IT_DB_HOST=localhost IT_DB_USER=root IT_DB_PASSWORD= npm run test:mysql
+```
 
-## 3. Manual end-to-end run (staging)
+This suite creates `rpp_it_<random>`, applies `database/migrations/*`, and
+exercises:
+- UTC, strict mode and InnoDB;
+- Argon2id and the bcrypt upgrade path;
+- sessions: expiry, idle timeout, revocation, purpose and account status;
+- single-use tokens, including the concurrent case;
+- role guards, including concurrent demotion and the last-admin rule;
+- cascades;
+- the full submit → review → decision → revision → re-review → accept →
+  publish state machine, with every guard and race.
 
-Use real mailboxes you control. Tick each step.
+It then drops the database. It refuses non-local hosts unless
+`RPP_IT_ALLOW_REMOTE=yes`.
 
-| # | Step | Who | Expect |
-|---|------|-----|--------|
-| 1 | Register | author | invite email arrives (Resend) |
-| 2 | Open link, create password, log in/out | author | dashboard loads |
-| 3 | Forgot password → reset; reuse old link | author | reset works; reused/expired link rejected |
-| 4 | Grant PEER_REVIEWER ×2, EDITOR | admin | People & roles updates |
-| 5 | Submit paper (PDF, 2 authors) | author | "Submission Received" email |
-| 6 | Assign 2 reviewers + editor with deadline | admin | status UNDER_REVIEW; assignment emails |
-| 7 | Reviewer opens paper | reviewer | no author names; manuscript downloads |
-| 8 | Both reviewers submit (with confidential note) | reviewers | editor gets "Review Submitted" |
-| 9 | Editor saves + communicates MAJOR revision, releasing one review | editor | author email; author sees "Reviewer 1" comments only, no confidential note |
-| 10 | Author uploads v1, answers points, submits | author | editor gets "Revision Submitted" |
-| 11 | Editor releases re-review | editor | reviewers emailed; v1 visible to them |
-| 12 | Reviewer submits round-1 review; editor ACCEPTs | — | author email; status ACCEPTED |
-| 13 | Create volume + issue; schedule paper | admin/editor | publication SCHEDULED |
-| 14 | Publish volume, then issue (with papers) | admin | author "Published" email |
-| 15 | Open `/publications` logged out | public | paper listed; download only if made public |
-| 16 | Activity + dashboards per role | all | authors never see reviewer identity |
+## 3. Rehearse the real migration on a copy
 
-## 4. Production rollout (after staging passes)
+1. Restore a production backup into a scratch database.
+2. With `DB_NAME` pointing at that scratch database, run `npm run db:check`,
+   then `npm run db:migrate -- --apply`, then
+   `npm run db:import-supabase-export -- <export.json>` (dry run first, then
+   `--apply`).
+3. Run `npm run db:check` again and confirm the accounts and roles.
 
-1. Take a database backup (Supabase dashboard → Database → Backups).
-2. Dry run, then apply ONLY the pending set — never without a filter:
-   ```
-   node scripts/supabase-apply-migrations.mjs 0005 0006 0007 0008 0009 0011 --dry-run
-   node scripts/supabase-apply-migrations.mjs 0005 0006 0007 0008 0009 0011
-   ```
-   Each file is a separate call: if one fails, stop and fix — earlier files stay applied
-   (all are idempotent, so re-running the same set is safe).
-3. Never re-apply 0004: it replaces the 0010-hardened `admin_set_user_roles`
-   with the vulnerable version (`test:workflow-sql` demonstrates this).
-4. Re-run the 0010 verification query (in the 0010 file header).
-5. Deploy the app, then repeat steps 5–15 once with a real paper.
+## 4. HTTP suites against a running build
+
+Build and start on the scratch database. Disable SMTP for test runs
+(`SMTP_HOST=127.0.0.1 SMTP_PORT=9`) so no test email reaches a real mailbox.
+Set placeholder `GOOGLE_*` values to exercise the Google start and callback
+paths, and set `MANUSCRIPT_STORAGE_DIR` to a scratch directory. Then:
+
+```
+node scripts/test-http-guards.mjs http://localhost:3001
+node scripts/test-auth-http.mjs http://localhost:3001
+node scripts/test-auth-live-app.mjs http://localhost:3001
+node scripts/test-register-form.mjs http://localhost:3001
+node scripts/test-registration.mjs http://localhost:3001
+node scripts/test-admin-http.mjs http://localhost:3001
+node scripts/test-email-policy.mjs http://localhost:3001
+node scripts/test-google-auth-http.mjs http://localhost:3001
+node scripts/test-e2e-live.mjs http://localhost:3001
+```
+
+All of them create their own throwaway accounts and remove them afterwards.
+
+## 5. Production
+
+Follow `mysql-migration-guide.md` §6: inspect, back up, migrate, import,
+configure the environment, and switch over.

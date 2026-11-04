@@ -12,7 +12,7 @@ export const metadata = { title: "Verify your email — Research Publication Por
 /**
  * Landing page for the setup link in the registration / reset email:
  *   /auth/confirm?token_hash=<hash>&type=invite|recovery&flow=setup|reset
- * (links are built by the server from Supabase's generateLink() hashed_token
+ * (links are built by the server from the single-use token generateLink() issues
  * and delivered by Resend — see lib/authMailer.js)
  * Opening the link does NOT verify anything (scanner-safe). The user presses
  * Continue → server action → verifyOtp on the server → /create-password.

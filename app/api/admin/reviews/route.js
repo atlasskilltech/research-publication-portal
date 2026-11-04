@@ -4,7 +4,8 @@
 // review panel for the full record) — this list is for progress tracking.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T } from "@/lib/db";
+import { usersByIds } from "@/lib/repos/users.mjs";
 import { REVIEWER_ROLES, deadlineState, summarizeReviews } from "@/lib/reviewLogic";
 
 export const runtime = "nodejs";
@@ -16,33 +17,32 @@ export async function GET() {
   if (!me.isAdmin) return NextResponse.json({ error: "Administrator access is required." }, { status: 403 });
 
   try {
-    const admin = createAdminClient();
-
-    const { data: assigns, error } = await admin
-      .from("paper_assignments")
-      .select("paper_id, assignee, role, assigned_at, due_at")
-      .in("role", REVIEWER_ROLES)
-      .order("assigned_at", { ascending: false })
-      .limit(1000);
-    if (error) throw error;
-    if (!assigns?.length) return NextResponse.json({ summary: summarizeReviews([]), rows: [] });
+    const assigns = await db.query(
+      `SELECT paper_id, assignee, role, assigned_at, due_at FROM \`${T.paperAssignments}\`
+        WHERE role IN (?) ORDER BY assigned_at DESC LIMIT 1000`,
+      [REVIEWER_ROLES],
+    );
+    if (!assigns.length) return NextResponse.json({ summary: summarizeReviews([]), rows: [] });
 
     const paperIds = [...new Set(assigns.map((a) => a.paper_id))];
     const reviewerIds = [...new Set(assigns.map((a) => a.assignee))];
 
-    const [{ data: papers }, { data: reviews }, { data: profs }] = await Promise.all([
-      admin.from("papers").select("id, title, status, current_round, submitted_by").in("id", paperIds),
-      admin.from("reviews").select("paper_id, reviewer, round, status, recommendation, submitted_at, updated_at").in("paper_id", paperIds),
-      admin.from("profiles").select("id, name, email").in("id", reviewerIds),
+    const [papers, reviews, profMap] = await Promise.all([
+      db.query(`SELECT id, title, status, current_round, submitted_by FROM \`${T.papers}\` WHERE id IN (?)`, [paperIds]),
+      db.query(
+        `SELECT paper_id, reviewer, round, status, recommendation, submitted_at, updated_at FROM \`${T.reviews}\` WHERE paper_id IN (?)`,
+        [paperIds],
+      ),
+      usersByIds(db, reviewerIds),
     ]);
-    const paperById = new Map((papers || []).map((p) => [p.id, p]));
+    const paperById = new Map(papers.map((p) => [p.id, p]));
     // Only each paper's CURRENT round counts toward progress.
     const reviewByKey = new Map(
-      (reviews || [])
+      reviews
         .filter((r) => r.round === (paperById.get(r.paper_id)?.current_round ?? 0))
         .map((r) => [`${r.paper_id}:${r.reviewer}`, r]),
     );
-    const profById = new Map((profs || []).map((p) => [p.id, p]));
+    const profById = profMap;
 
     const now = new Date();
     // Never show an administrator the reviewers of a paper they authored.
@@ -73,7 +73,7 @@ export async function GET() {
 
     return NextResponse.json({ summary: summarizeReviews(rows), rows });
   } catch (e) {
-    console.error("admin/reviews GET:", e?.message);
+    console.error("admin/reviews GET:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not load review monitoring." }, { status: 500 });
   }
 }

@@ -1,9 +1,9 @@
 // Public self-registration — passwordless. The user never chooses a password
-// here; we create the Supabase Auth account in an unconfirmed, invited state and
-// email them a verification link. Clicking it confirms the email and sends them
-// to the Create Password page. Every new account is a non-admin Submitter: the
-// profile row is created by the handle_new_user trigger, which hard-codes
-// is_admin = false, so privilege can never arrive from the client.
+// here; we create the MySQL account in an unverified state and email them a
+// single-use verification link. Clicking it verifies the email and sends them
+// to the Create Password page. Every new account is a non-admin Submitter:
+// lib/repos/users.createRegisteredUser hard-codes isAdmin = 0 and writes no
+// role, so privilege can never arrive from the client.
 //
 // Students must pass Application Number verification (checked server-side here,
 // never trusting any client result) and the number must be unique. Faculty skip
@@ -19,7 +19,8 @@
 //   503 { error }                              verification temporarily unavailable
 //   500 { error }                              unexpected fault
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/db";
+import { findUserByApplicationNo } from "@/lib/repos/users.mjs";
 import { validateRegister } from "@/lib/validation";
 import { verifyApplicationNo } from "@/lib/studentCheck";
 import { registerAndInvite, findUserByEmail, registerRateLimit, clientIp } from "@/lib/authServer";
@@ -53,21 +54,13 @@ export async function POST(request) {
   }
 
   try {
-    const admin = createAdminClient();
-
     // ---- Student-only: duplicate guard + external verification -----------
     if (baseType === "STUDENT") {
       // Prevent two accounts for the same application number. The DB also has a
       // unique index as the hard backstop; this gives a clean 409 first.
       // Both sides are already normalised (upper-cased, whitespace-stripped),
       // so an exact match is correct and avoids ilike wildcard characters.
-      const { data: existing, error: dupErr } = await admin
-        .from("profiles")
-        .select("id")
-        .eq("application_no", applicationNo)
-        .limit(1);
-      if (dupErr) throw dupErr;
-      if (existing && existing.length > 0) {
+      if (await findUserByApplicationNo(db, applicationNo)) {
         return NextResponse.json(
           { error: "This application number is already registered." },
           { status: 409 },
@@ -101,10 +94,10 @@ export async function POST(request) {
     if (await findUserByEmail(email)) return conflict();
 
     // ---- Create the invited (unconfirmed) auth user + email it ------------
-    // Application-managed delivery: Supabase creates the account and generates
-    // the one-time token (auth.admin.generateLink — sends no email); we email
-    // OUR /auth/confirm link via Resend; /auth/confirm verifies it server-side.
-    // Metadata is consumed by handle_new_user() to populate public.profiles.
+    // generateLink creates the account + a single-use token in one transaction
+    // (sends no email); we email OUR /auth/confirm link over SMTP; /auth/confirm
+    // verifies it server-side. A race on email/application number hits the
+    // unique keys and comes back as a conflict.
     const result = await registerAndInvite(email, {
       name,
       base_type: baseType, // STUDENT | FACULTY
@@ -142,7 +135,7 @@ export async function POST(request) {
       { status: 201 },
     );
   } catch (e) {
-    console.error("register: error:", e?.status || e?.message);
+    console.error("register: error:", e?.code || e?.status || e?.message);
     return NextResponse.json(
       { error: "Registration is temporarily unavailable. Please try again later." },
       { status: 500 },

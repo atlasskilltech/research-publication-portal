@@ -2,11 +2,12 @@
 // reviewers: REVISION_SUBMITTED → REVISION_UNDER_REVIEW, paper back to
 // UNDER_REVIEW, optional new review deadline for every reviewer assignment.
 // Only after this can reviewers download the revised version and review the
-// new round. Transactional via start_revision_rereview() (0007).
+// new round. Transactional via startRevisionRereview() (lib/services/workflow.mjs).
 //   POST { dueAt?: ISO date }
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/db";
+import { startRevisionRereview } from "@/lib/services/workflow.mjs";
 import { notifyLater } from "@/lib/notifyServer";
 import { loadPaperContext } from "@/lib/paperAccess";
 import { canTransition, RS, mapRpcError } from "@/lib/revisionLogic";
@@ -36,8 +37,7 @@ export async function POST(request, { params }) {
   }
 
   try {
-    const admin = createAdminClient();
-    const ctx = await loadPaperContext(admin, id, me);
+    const ctx = await loadPaperContext(db, id, me);
     if (!ctx) return NextResponse.json({ error: "Not found." }, { status: 404 });
     if (!ctx.canManage) return NextResponse.json({ error: "Only an administrator or the paper's editor can start a re-review." }, { status: 403 });
     const rev = ctx.revisions.find((r) => r.round === round);
@@ -46,8 +46,9 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: "The author has not submitted this revision yet." }, { status: 409 });
     }
 
-    const { error } = await admin.rpc("start_revision_rereview", { p_paper: id, p_round: round, p_actor: me.id, p_due: dueAt });
-    if (error) {
+    try {
+      await startRevisionRereview(db, { paperId: id, round, actorId: me.id, dueAt });
+    } catch (error) {
       const mapped = mapRpcError(error);
       if (mapped) return NextResponse.json({ error: mapped.error }, { status: mapped.status });
       throw error;
@@ -55,7 +56,7 @@ export async function POST(request, { params }) {
     notifyLater("REREVIEW_REQUESTED", { paperId: id, actorId: me.id, round, dueAt });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error("rereview POST:", e?.message);
+    console.error("rereview POST:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not start the re-review." }, { status: 500 });
   }
 }

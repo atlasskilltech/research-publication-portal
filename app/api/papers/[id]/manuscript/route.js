@@ -10,7 +10,8 @@
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T } from "@/lib/db";
+import { logActivity } from "@/lib/repos/rows.mjs";
 import { neutralDownloadName, mimeForStorageKey } from "@/lib/manuscriptFiles";
 import { manuscriptPath as resolvePath } from "@/lib/storage";
 import { loadPaperContext } from "@/lib/paperAccess";
@@ -25,16 +26,13 @@ export async function GET(request, { params }) {
   const { id } = await params;
 
   try {
-    const admin = createAdminClient();
-    const ctx = await loadPaperContext(admin, id, me);
+    const ctx = await loadPaperContext(db, id, me);
     if (!ctx) return NextResponse.json({ error: "Not found." }, { status: 404 });
     const privileged = me.isAdmin || ctx.isOwner;
     if (!privileged && !ctx.isAssigned) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
-    const { data: all } = await admin
-      .from("paper_manuscripts")
-      .select("version, storage_key, mime_type, original_filename, byte_size")
-      .eq("paper_id", id);
+    const all = await db.query(
+      `SELECT version, storage_key, mime_type, original_filename, byte_size FROM \`${T.paperManuscripts}\` WHERE paper_id = ?`, [id]);
     // Managers (admin / the paper's EDITOR) need every version — including a
     // submitted revision before it is released to reviewers — to check it.
     // Filenames stay owner/admin-only (below).
@@ -66,9 +64,11 @@ export async function GET(request, { params }) {
     // Audit reviewer access to the manuscript (admin-only visibility; owners
     // never see this action — see OWNER_VISIBLE_ACTIONS).
     if (!privileged) {
-      await admin.from("paper_activity")
-        .insert({ paper_id: id, actor: me.id, action: "MANUSCRIPT_DOWNLOADED", detail: { version: m.version } })
-        .then(({ error }) => { if (error) console.error("manuscript audit:", error.message); });
+      try {
+        await logActivity(db, id, me.id, "MANUSCRIPT_DOWNLOADED", { version: m.version });
+      } catch (e) {
+        console.error("manuscript audit:", e?.code || e?.message);
+      }
     }
 
     const ext = m.storage_key.split(".").pop();
@@ -87,7 +87,7 @@ export async function GET(request, { params }) {
       },
     });
   } catch (e) {
-    console.error("manuscript download:", e?.message);
+    console.error("manuscript download:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not fetch the manuscript." }, { status: 500 });
   }
 }

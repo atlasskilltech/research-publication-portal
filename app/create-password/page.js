@@ -1,7 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSessionUser } from "@/lib/session";
-import { verifySetupToken } from "@/lib/authFlow";
-import { readSetupProof, setupSecret } from "@/lib/authServer";
+import { getSetupSession } from "@/lib/session";
 import AuthCard from "@/components/auth/AuthCard";
 import CreatePasswordForm from "@/components/auth/CreatePasswordForm";
 
@@ -10,15 +8,16 @@ export const metadata = { title: "Create your password — Research Publication 
 
 /**
  * Create Password — reachable only right after a setup link was verified in
- * /auth/confirm: needs a valid session AND the signed setup proof for that same
- * user (30-minute window). Otherwise the user is sent to request a new link.
+ * /auth/confirm: needs the 30-minute SETUP session that the verified link
+ * started (bound to that user server-side). Otherwise the user is sent to request a new link.
  * Lives OUTSIDE the (auth) group, whose layout bounces signed-in users to the
  * dashboard.
  */
 export default async function CreatePasswordPage() {
-  const user = await getSessionUser();
-  const proof = await readSetupProof();
-  if (!user || !verifySetupToken(proof, user.id, setupSecret())) redirect("/auth/confirm?status=setup_required");
+  // Only the short-lived SETUP session from a verified email link opens this page.
+  const setup = await getSetupSession();
+  if (!setup || setup.flow !== "setup") redirect("/auth/confirm?status=setup_required");
+  const { user } = setup;
 
   return (
     <AuthCard eyebrow="Account verified" title="Create your password">

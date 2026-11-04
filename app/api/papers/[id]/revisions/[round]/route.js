@@ -3,12 +3,14 @@
 //   PUT { responses: [{ reviewKey, comment, response, addressed }], submit?: true }
 //
 // Reviewer references arrive as anonymous keys (R1, R2…) and are mapped to
-// review ids server-side. Final submission runs in submit_paper_revision()
-// (0007), which locks the revision row, requires this round's manuscript, and
-// rejects a duplicate/concurrent submit with 409.
+// review ids server-side. Final submission runs in submitPaperRevision()
+// (lib/services/workflow.mjs, one transaction), which locks the revision row,
+// requires this round's manuscript, and rejects a duplicate/concurrent submit
+// with 409.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T } from "@/lib/db";
+import { saveRevisionDraft, submitPaperRevision } from "@/lib/services/workflow.mjs";
 import { notifyLater } from "@/lib/notifyServer";
 import { loadPaperContext } from "@/lib/paperAccess";
 import { canAuthorEdit, validateResponses, mapRpcError } from "@/lib/revisionLogic";
@@ -28,8 +30,7 @@ export async function PUT(request, { params }) {
   const final = body?.submit === true;
 
   try {
-    const admin = createAdminClient();
-    const ctx = await loadPaperContext(admin, id, me);
+    const ctx = await loadPaperContext(db, id, me);
     if (!ctx) return NextResponse.json({ error: "Not found." }, { status: 404 });
     const revision = ctx.revisions.find((r) => r.round === round);
     const gate = canAuthorEdit({ paper: ctx.paper, revision, userId: me.id });
@@ -39,15 +40,13 @@ export async function PUT(request, { params }) {
     if (!v.ok) return NextResponse.json({ error: v.error, issues: v.errors }, { status: 422 });
 
     if (final) {
-      const { data: ms } = await admin
-        .from("paper_manuscripts").select("id").eq("paper_id", id).eq("version", round).maybeSingle();
+      const ms = await db.one(`SELECT id FROM \`${T.paperManuscripts}\` WHERE paper_id = ? AND version = ?`, [id, round]);
       if (!ms) return NextResponse.json({ error: "Upload the revised manuscript before submitting." }, { status: 422 });
     }
 
-    const { error } = await admin.rpc(final ? "submit_paper_revision" : "save_revision_draft", {
-      p_paper: id, p_round: round, p_actor: me.id, p_responses: v.value,
-    });
-    if (error) {
+    try {
+      await (final ? submitPaperRevision : saveRevisionDraft)(db, { paperId: id, round, actorId: me.id, responses: v.value });
+    } catch (error) {
       const mapped = mapRpcError(error);
       if (mapped) return NextResponse.json({ error: mapped.error }, { status: mapped.status });
       throw error;
@@ -55,7 +54,7 @@ export async function PUT(request, { params }) {
     if (final) notifyLater("REVISION_SUBMITTED", { paperId: id, actorId: me.id, round });
     return NextResponse.json({ ok: true, status: final ? "REVISION_SUBMITTED" : "REVISION_IN_PROGRESS" });
   } catch (e) {
-    console.error("revision PUT:", e?.message);
+    console.error("revision PUT:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not save the revision." }, { status: 500 });
   }
 }

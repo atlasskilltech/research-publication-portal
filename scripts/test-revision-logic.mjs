@@ -1,11 +1,12 @@
 /**
- * No-DB unit tests for Phase 3 (lib/revisionLogic.js + static checks of
- * supabase/migrations/0007_revisions.sql): eligibility, state transitions,
+ * No-DB unit tests for Phase 3 (lib/revisionLogic.js + static checks of the
+ * MySQL workflow service lib/services/workflow.mjs and database/migrations/002_workflow.mjs): eligibility, state transitions,
  * numbering, ownership, manuscript-version access, response validation,
  * confidential separation, concurrency guards and version preservation.
  *
- * The SQL checks are STATIC (they read the migration text); they do not run
- * the functions against a database. Run: node scripts/test-revision-logic.mjs
+ * The service/schema checks are STATIC (they read the source text); the
+ * executable checks against MySQL live in scripts/test-mysql-integration.mjs.
+ * Run: node scripts/test-revision-logic.mjs
  */
 import { readFileSync } from "node:fs";
 import {
@@ -17,21 +18,31 @@ import {
 
 let failures = 0;
 const check = (l, ok, d = "") => { console.log(`  ${ok ? "✓" : "✗"} ${l}${d ? " — " + d : ""}`); if (!ok) failures++; };
-const sql = readFileSync(new URL("../supabase/migrations/0007_revisions.sql", import.meta.url), "utf8");
+const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+const wf = read("../lib/services/workflow.mjs");
+const ddl = read("../database/migrations/002_workflow.mjs");
+/** Body of a top-level function in workflow.mjs (declaration → closing "\n}\n"). */
 const fnBody = (name) => {
-  const m = sql.match(new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\$\\$([\\s\\S]*?)\\$\\$;`));
-  return m ? m[1] : "";
+  const i = wf.search(new RegExp("(?:^|\\n)(?:export )?(?:async )?function " + name + "\\("));
+  if (i < 0) return "";
+  const end = wf.indexOf("\n}\n", i + 1);
+  return end < 0 ? "" : wf.slice(i, end + 2);
 };
+/** DDL body of one table in 002_workflow.mjs. */
+const tableDdl = (key) => { const i = ddl.indexOf("createTable(T." + key + ", "); return i < 0 ? "" : ddl.slice(i, ddl.indexOf(");\n", i)); };
+/** Matches a DDL fragment written with backtick-quoted identifiers, e.g. q("UNIQUE KEY ~k~ (~a~, ~b~)"). */
+const q = (t) => t.replaceAll("~", "\\" + "`");
 
 const U = (n) => `00000000-0000-4000-8000-00000000000${n}`;
 const NOW = new Date("2026-11-01T12:00:00Z");
 
 console.log("\n=== Phase 3 revision logic unit tests ===\n");
 
-console.log("Migration parse guard:");
-check("every 0007 state function body was found (no vacuous SQL checks)",
-  ["request_paper_revision", "_rpp_lock_editable", "_rpp_mark_started", "attach_revision_manuscript", "save_revision_draft",
-    "submit_paper_revision", "start_revision_rereview", "_rpp_is_manager"].every((f) => fnBody(f).length > 100));
+console.log("Source parse guard:");
+check("every revision state function body was found (no vacuous checks)",
+  ["requestRevisionTx", "lockEditable", "markStarted", "attachRevisionManuscript", "saveRevisionDraft",
+    "submitPaperRevision", "startRevisionRereview", "isManager"].every((f) => fnBody(f).length > 100)
+  && tableDdl("paperRevisions").length > 200 && tableDdl("reviews").length > 200 && tableDdl("paperManuscripts").length > 200);
 
 console.log("Status transitions:");
 check("manager: none → REQUESTED", canTransition(null, RS.REQUESTED, "manager"));
@@ -62,8 +73,8 @@ check("missing/garbage round treated as 0", nextRevisionRound({}) === 1 && nextR
 check("latestRevision picks highest round", latestRevision([{ round: 1 }, { round: 3 }, { round: 2 }]).round === 3);
 check("releasedRound = highest UNDER_REVIEW", releasedRound([{ round: 1, status: RS.UNDER_REVIEW }, { round: 2, status: RS.SUBMITTED }]) === 1);
 check("releasedRound = 0 when nothing released", releasedRound([{ round: 1, status: RS.SUBMITTED }]) === 0);
-check("SQL request uses current_round + 1", /v_paper\.current_round \+ 1/.test(fnBody("request_paper_revision")));
-check("SQL unique (paper_id, round)", /unique \(paper_id, round\)/.test(sql));
+check("service request uses current_round + 1", /const round = paper\.current_round \+ 1/.test(fnBody("requestRevisionTx")));
+check("schema unique (paper_id, round)", tableDdl("paperRevisions").includes(q("UNIQUE KEY ~research_revisions_round_uq~ (~paper_id~, ~round~)")));
 
 console.log("\nOwnership & management rights:");
 const paper = { id: "p", submitted_by: "author-1", status: "UNDER_REVIEW", current_round: 0 };
@@ -81,8 +92,8 @@ check("editor of ANOTHER assignment row doesn't count", !canManageRevisions({ id
   check("owner cannot edit a SUBMITTED revision (409)", canAuthorEdit({ paper, revision: { round: 1, status: RS.SUBMITTED }, userId: "author-1" }).status === 409);
   check("no revision requested → 404", canAuthorEdit({ paper, revision: null, userId: "author-1" }).status === 404);
 }
-check("SQL author functions check submitted_by = p_actor", /submitted_by = p_actor/.test(fnBody("_rpp_lock_editable")));
-check("SQL manager check: is_admin or paper EDITOR", /is_admin[\s\S]*role = 'EDITOR'/.test(fnBody("_rpp_is_manager")));
+check("service author functions check submitted_by = actor", /WHERE id = \? AND submitted_by = \?/.test(fnBody("lockEditable")) && /\[paperId, actorId\]/.test(fnBody("lockEditable")) && /fail\("FORBIDDEN"\)/.test(fnBody("lockEditable")));
+check("service manager check: isAdmin or paper EDITOR", /isAdmin[\s\S]*role = 'EDITOR'/.test(fnBody("isManager")));
 
 console.log("\nRevision eligibility:");
 const reviews = [
@@ -100,7 +111,7 @@ check("DRAFT review cannot be shared", !canRequestRevision({ paper, revisions: [
 check("other-round review cannot be shared", !canRequestRevision({ paper, revisions: [], reviews, reviewIds: [U(3)] }).ok);
 check("unknown review id cannot be shared", !canRequestRevision({ paper, revisions: [], reviews, reviewIds: [U(9)] }).ok);
 check("released revision doesn't block a new request", canRequestRevision({ paper: { ...paper, current_round: 1 }, revisions: [{ round: 1, status: RS.UNDER_REVIEW }], reviews, reviewIds: [U(3)] }).ok);
-check("a reviewer recommendation alone never creates a request (no auto path)", !/recommendation/.test(fnBody("request_paper_revision")));
+check("a reviewer recommendation alone never creates a request (no auto path)", !/recommendation/.test(fnBody("requestRevisionTx")));
 
 console.log("\nRevision request validation:");
 const goodReq = { type: "minor", instructions: "Address R1.", dueAt: "2026-12-01", reviewIds: [U(1)] };
@@ -120,7 +131,8 @@ check("reviewer after revision 1 released: v0,v1 (not unreleased v2)", JSON.stri
 check("stranger sees nothing", permittedVersions("none", versions, 2).length === 0);
 check("default = latest permitted (reviewer gets v1, not v2)", defaultVersion(permittedVersions("assigned", versions, 1)).version === 1);
 check("default with nothing permitted = null", defaultVersion([]) === null);
-check("SQL RLS limits assigned users to released versions", /current_user_assigned\(paper_id\) and version <= public\.paper_released_round\(paper_id\)/.test(sql));
+// (Postgres RLS on paper_manuscripts is gone; the same rule is enforced by the download route.)
+check("manuscript download limits assigned users to released versions", read("../app/api/papers/[id]/manuscript/route.js").includes('permittedVersions(privileged || ctx.canManage ? "owner" : "assigned", all, ctx.released)'));
 
 console.log("\nPoint-by-point response validation:");
 const ids = [U(1), U(4)];
@@ -174,31 +186,39 @@ const storedReviews = [
   check("author revision view has no confidential text", !/SECRET/.test(JSON.stringify(a)));
   const m = revisionForManager(rev, new Map([[U(1), "Dr A"]]), null, NOW);
   check("manager view names the reviewer behind each response", m.responses[0].reviewer === "Dr A");
-  check("SQL: reviews RLS has no author branch", /create policy reviews_select[\s\S]*?\(\s*reviewer = auth\.uid\(\) or public\.current_user_is_admin\(\) or public\.current_user_is_paper_editor\(paper_id\)\s*\);/.test(sql));
+  // (Postgres reviews RLS is gone; equivalent: the all-reviews API is manager-only and authors get reviewsForAuthor.)
+  check("all-reviews API is admin/editor only (no author branch)", read("../app/api/papers/[id]/reviews/route.js").includes('if (!ctx.canManage) return NextResponse.json({ error: "Administrator or editor access is required." }, { status: 403 })'));
+  check("author-facing routes shape reviews via revisionForAuthor (→ reviewsForAuthor)",
+    /revisionForAuthor\(/.test(read("../app/api/papers/[id]/revisions/route.js")) && /revisionForAuthor\(/.test(read("../app/api/revisions/route.js"))
+    && /reviewsForAuthor\(/.test(read("../lib/revisionLogic.js").split("export function revisionForAuthor")[1] || ""));
 }
 
-console.log("\nConcurrency protection (static SQL checks + guards):");
-for (const fn of ["request_paper_revision", "start_revision_rereview", "_rpp_lock_editable"]) {
-  check(`${fn} locks its row FOR UPDATE`, /for update/.test(fnBody(fn)));
+console.log("\nConcurrency protection (static service checks + guards):");
+check("requestRevisionTx locks the paper row FOR UPDATE", /await lockPaper\(tx, paperId\)/.test(fnBody("requestRevisionTx")) && /FOR UPDATE/.test(fnBody("lockPaper")));
+for (const fn of ["startRevisionRereview", "lockEditable"]) {
+  check(fn + " locks its row FOR UPDATE", /FOR UPDATE/.test(fnBody(fn)));
 }
-check("submit/draft/attach go through the locking helper", ["submit_paper_revision", "save_revision_draft", "attach_revision_manuscript"].every((f) => /_rpp_lock_editable/.test(fnBody(f))));
-check("locked helper rejects already-submitted revisions", /ALREADY_SUBMITTED/.test(fnBody("_rpp_lock_editable")));
-check("partial unique index: one open revision per paper", /paper_revisions_one_open[\s\S]*where status in \('REVISION_REQUESTED','REVISION_IN_PROGRESS','REVISION_SUBMITTED'\)/.test(sql));
-check("re-review requires SUBMITTED", /NOT_SUBMITTED/.test(fnBody("start_revision_rereview")));
-check("state functions not callable by anon/authenticated", ["request_paper_revision", "submit_paper_revision", "save_revision_draft", "attach_revision_manuscript", "start_revision_rereview"].every((f) => new RegExp(`revoke all on function public\\.${f}\\([^)]*\\) from public, anon, authenticated`).test(sql)));
+check("submit/draft/attach go through the locking helper", ["submitPaperRevision", "saveRevisionDraft", "attachRevisionManuscript"].every((f) => /await lockEditable\(tx, paperId, round, actorId\)/.test(fnBody(f))));
+check("locked helper rejects already-submitted revisions", /ALREADY_SUBMITTED/.test(fnBody("lockEditable")));
+// MySQL has no partial unique index: "one open revision per paper" is checked under the paper row lock.
+check("one open revision per paper: checked AFTER locking the paper", (() => { const b = fnBody("requestRevisionTx"); const l = b.indexOf("lockPaper("), o = b.indexOf("hasOpenRevision("); return l > -1 && o > l && /fail\("OPEN_REVISION"\)/.test(b); })());
+check("open = REQUESTED / IN_PROGRESS / SUBMITTED", /OPEN_REVISION = \["REVISION_REQUESTED", "REVISION_IN_PROGRESS", "REVISION_SUBMITTED"\]/.test(wf));
+check("re-review requires SUBMITTED", /NOT_SUBMITTED/.test(fnBody("startRevisionRereview")));
+// (Postgres REVOKE … FROM anon/authenticated has no MySQL counterpart — the DB is never exposed to browsers.)
+check("every revision state change runs in one db.transaction", ["requestPaperRevision", "attachRevisionManuscript", "saveRevisionDraft", "submitPaperRevision", "startRevisionRereview"].every((f) => /db\.transaction\(/.test(fnBody(f))));
 check("ALREADY_SUBMITTED maps to HTTP 409", mapRpcError({ message: "RPP:ALREADY_SUBMITTED" }).status === 409);
-check("unique violation maps to 409", mapRpcError({ code: "23505", message: "duplicate key" }).status === 409);
+check("unique violation maps to 409", mapRpcError({ code: "ER_DUP_ENTRY", errno: 1062, message: "Database error (ER_DUP_ENTRY)" }).status === 409);
 check("unknown DB errors are not mapped (→ generic 500)", mapRpcError({ message: "connection reset" }) === null);
-check("re-review rounds don't overwrite: unique (paper, reviewer, round)", /reviews_paper_reviewer_round_uidx[\s\S]*\(paper_id, reviewer, round\)/.test(sql));
+check("re-review rounds don't overwrite: unique (paper, reviewer, round)", tableDdl("reviews").includes(q("UNIQUE KEY ~research_reviews_paper_reviewer_round_uq~ (~paper_id~, ~reviewer~, ~round~)")));
 
 console.log("\nPrevious manuscript version preservation:");
-const attach = fnBody("attach_revision_manuscript");
-check("attach writes only version = p_round", /version = p_round/.test(attach) && !/version = 0/.test(attach));
-check("revision rounds are >= 1 (original v0 unreachable)", /round\s+int\s+not null check \(round >= 1\)/.test(sql));
-check("attach is limited to editable (unsubmitted) revisions", /_rpp_lock_editable/.test(attach));
-check("one row per (paper, version)", /paper_manuscripts_paper_version_uidx[\s\S]*\(paper_id, version\)/.test(sql));
-check("no DELETE of paper_manuscripts anywhere in 0007", !/delete\s+from\s+public\.paper_manuscripts/i.test(sql));
-check("submit requires this round's manuscript", /NO_MANUSCRIPT/.test(fnBody("submit_paper_revision")));
+const attach = fnBody("attachRevisionManuscript");
+check("attach writes only version = round", /\[key, filename, mime, size, sha, actorId, paperId, round\]/.test(attach) && /\[uuid\(\), paperId, round, key/.test(attach) && !/version = 0/.test(attach));
+check("revision rounds are >= 1 (original v0 unreachable)", tableDdl("paperRevisions").includes(q("CHECK (~round~ >= 1)")));
+check("attach is limited to editable (unsubmitted) revisions", /lockEditable\(/.test(attach));
+check("one row per (paper, version)", tableDdl("paperManuscripts").includes(q("UNIQUE KEY ~research_paper_manuscripts_paper_version_uq~ (~paper_id~, ~version~)")));
+check("no DELETE of paper_manuscripts anywhere in the workflow service", !/DELETE\s+FROM\s+\\`\$\{T\.paperManuscripts\}/i.test(wf));
+check("submit requires this round's manuscript", /NO_MANUSCRIPT/.test(fnBody("submitPaperRevision")));
 
 console.log(`\n${failures === 0 ? "✓ PASS — revision logic is sound." : `✗ FAIL — ${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

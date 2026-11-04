@@ -143,8 +143,10 @@ console.log("\nMock pages retired / APIs gated:");
     check(`${f.replace("../app/api/", "")}: requires a session (401)`, /getSessionUser\(\)/.test(src) && /status: 401/.test(src));
   }
   const dapi = read("../app/api/dashboard/route.js");
-  const selects = (dapi.match(/\.select\("[^"]*"\)/g) || []).join(" ");
-  check("dashboard reads released decisions only; no select of summary/confidential_note", /not\("released_at", "is", null\)/.test(dapi) && selects.length > 50 && !/confidential_note|summary/.test(selects));
+  const selects = (dapi.match(/SELECT [^`]*?FROM/g) || []).join(" ");
+  check("dashboard reads the author's released decisions only; no select of summary/confidential_note",
+    /SELECT paper_id, decision, released_at FROM \\`\$\{T\.editorialDecisions\}\\` WHERE paper_id IN \(\?\) AND released_at IS NOT NULL/.test(dapi) &&
+      selects.length > 50 && !/confidential_note|summary/.test(selects));
   check("dashboard never queries author identity", !/paper_authors/.test(dapi));
   check("activity API never queries author identity table", !/paper_authors/.test(read("../app/api/activity/route.js")));
 }

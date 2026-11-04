@@ -1,143 +1,34 @@
 /**
- * LIVE end-to-end workflow test against the EXISTING Supabase project, driven
- * over HTTP against a locally running production build (`next start`).
+ * LIVE end-to-end workflow test over HTTP against a running production build
+ * (`next start`) backed by MySQL.
  *
- * It creates clearly-identified TEST accounts/data, runs submission → review →
- * decision → revision → re-review → accept → publish → public catalogue, checks
- * access control + double-blind/confidentiality at every step, then deletes
- * EVERYTHING it created. Every delete is filtered by recorded test ids AND
- * re-verified (title prefix / plus-address) — never by a pattern on real data.
+ * Creates clearly-identified TEST accounts/data (rpp.it.* emails, "[TEST <run>]"
+ * titles), runs submission → review → decision → revision → re-review → accept
+ * → publish → public catalogue, checks access control + double-blind /
+ * confidentiality at every step, then deletes EVERYTHING it created (recorded
+ * ids only; FK-safe order; stored manuscript files too) — even on failure.
  *
- *   RPP_E2E_CONFIRM=yes node --env-file=.env.local scripts/test-e2e-live.mjs [baseUrl]
- *   node --env-file=.env.local scripts/test-e2e-live.mjs --cleanup .e2e-manifest-<runid>.json
- *
- * Env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY (fixtures/teardown/
- * verification reads only), EMAIL_ID (sender mailbox; test accounts are
- * plus-addresses of it so mail never reaches a real person),
- * MANUSCRIPT_STORAGE_DIR (must match the server's, for file cleanup).
+ *   node scripts/test-e2e-live.mjs http://localhost:3001
+ * Env: DB_* = the SAME database as the running app (fixtures/teardown/
+ * verification), MANUSCRIPT_STORAGE_DIR = the server's (file cleanup).
  * Never prints passwords, tokens or cookies.
  */
-import { createClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
-import os from "node:os";
-import path from "node:path";
-import { writeFileSync, readFileSync, unlinkSync, existsSync } from "node:fs";
+import { makeHarness } from "./lib/test-db.mjs";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const secret = process.env.SUPABASE_SECRET_KEY;
-if (!url || !secret) { console.error("Need NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY."); process.exit(1); }
-// Same construction as scripts/admin-snapshot.mjs.
-const sb = createClient(url, secret, { auth: { autoRefreshToken: false, persistSession: false } });
-
-const STORAGE_DIR = (process.env.MANUSCRIPT_STORAGE_DIR || "").trim() || path.join(os.tmpdir(), "rpp-manuscripts-dev");
-const SAFE_KEY = /^[a-f0-9]{32}\.(pdf|docx|doc)$/;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// ---- Manifest (re-runnable cleanup) -----------------------------------------
-let manifest = null, manifestPath = null;
-const saveManifest = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-const rec = (kind, id) => { if (id && !manifest[kind].includes(id)) { manifest[kind].push(id); saveManifest(); } };
-
-// ---- Cleanup ------------------------------------------------------------------
-async function cleanup(m) {
-  console.log(`\n== CLEANUP run ${m.runId} ==`);
-  const prefix = `[TEST ${m.runId}]`;
-  const tag = `+rpp-${m.runId}-`;
-  let problems = 0;
-  const warn = (msg) => { problems++; console.log(`  ! ${msg}`); };
-  const userIds = Object.values(m.users || {}).map((u) => u.id).filter(Boolean);
-
-  // Papers: recorded ids ∪ papers submitted by recorded test users, then keep
-  // ONLY rows whose title carries this run's prefix.
-  const cand = new Set(m.paperIds || []);
-  if (userIds.length) {
-    const { data } = await sb.from("papers").select("id").in("submitted_by", userIds);
-    (data || []).forEach((p) => cand.add(p.id));
-  }
-  let paperIds = [];
-  if (cand.size) {
-    const { data } = await sb.from("papers").select("id, title").in("id", [...cand]);
-    for (const p of data || []) (p.title || "").startsWith(prefix) ? paperIds.push(p.id) : warn(`skip paper ${p.id}: title lacks test prefix`);
-  }
-  // Storage keys BEFORE the rows go (cascade removes paper_manuscripts).
-  if (paperIds.length) {
-    const { data } = await sb.from("paper_manuscripts").select("storage_key").in("paper_id", paperIds);
-    for (const r of data || []) if (!m.storageKeys.includes(r.storage_key)) m.storageKeys.push(r.storage_key);
-    if (manifestPath) saveManifest();
-  }
-  if (paperIds.length) {
-    const { data, error } = await sb.from("publications").delete().in("paper_id", paperIds).select("id");
-    error ? warn(`publications: ${error.message}`) : console.log(`  publications deleted: ${data.length}`);
-    const r = await sb.from("papers").delete().in("id", paperIds).select("id");
-    r.error ? warn(`papers: ${r.error.message}`) : console.log(`  papers deleted (children cascade): ${r.data.length}`);
-  }
-  // Issues, then volumes: recorded ids ∪ created by test users, title-prefix verified.
-  for (const [table, kind] of [["issues", "issueIds"], ["volumes", "volumeIds"]]) {
-    const ids = new Set(m[kind] || []);
-    if (userIds.length) { const { data } = await sb.from(table).select("id").in("created_by", userIds); (data || []).forEach((x) => ids.add(x.id)); }
-    if (!ids.size) continue;
-    const { data: rows } = await sb.from(table).select("id, title").in("id", [...ids]);
-    const ok = (rows || []).filter((x) => (x.title || "").startsWith(prefix)).map((x) => x.id);
-    (rows || []).filter((x) => !ok.includes(x.id)).forEach((x) => warn(`skip ${table} ${x.id}: title lacks test prefix`));
-    if (!ok.length) continue;
-    const { data, error } = await sb.from(table).delete().in("id", ok).select("id");
-    error ? warn(`${table}: ${error.message}`) : console.log(`  ${table} deleted: ${data.length}`);
-  }
-  // Users: verify the plus-address tag first; ADMIN last.
-  const order = Object.entries(m.users || {}).sort(([a], [b]) => (a === "ADMIN") - (b === "ADMIN"));
-  for (const [persona, u] of order) {
-    if (!u?.id) continue;
-    const { data, error } = await sb.auth.admin.getUserById(u.id);
-    if (error || !data?.user) { console.log(`  user ${persona}: already gone`); continue; }
-    if (!(data.user.email || "").toLowerCase().includes(tag)) { warn(`skip user ${persona}: email is not a test address`); continue; }
-    const del = await sb.auth.admin.deleteUser(u.id);
-    if (del.error) warn(`user ${persona}: ${/RPP_LAST_ADMIN/.test(del.error.message) ? "RPP_LAST_ADMIN (refused: last admin)" : del.error.message}`);
-    else console.log(`  user deleted: ${persona}`);
-  }
-  // Manuscript files: only recorded keys, only under the storage root.
-  let files = 0;
-  for (const key of m.storageKeys || []) {
-    if (!SAFE_KEY.test(key)) { warn(`skip unsafe key ${key}`); continue; }
-    const full = path.join(STORAGE_DIR, key);
-    try { unlinkSync(full); files++; } catch (e) { if (e.code !== "ENOENT") warn(`file ${key}: ${e.code}`); }
-  }
-  console.log(`  manuscript files removed from ${STORAGE_DIR}: ${files} (of ${(m.storageKeys || []).length} recorded)`);
-  if (!problems && manifestPath && existsSync(manifestPath)) { unlinkSync(manifestPath); console.log("  manifest removed (clean)."); }
-  else if (problems) console.log(`  ${problems} cleanup problem(s); manifest kept: ${manifestPath}`);
-  return problems;
-}
-
-if (process.argv[2] === "--cleanup") {
-  manifestPath = path.resolve(process.argv[3] || "");
-  manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  process.exit((await cleanup(manifest)) ? 1 : 0);
-}
-
-// ---- Safety preamble --------------------------------------------------------------
-if (process.env.RPP_E2E_CONFIRM !== "yes") {
-  console.error("Refusing to run: this writes TEST data to the live Supabase project. Set RPP_E2E_CONFIRM=yes.");
-  process.exit(1);
-}
-const [mbLocal, mbDomain] = (process.env.EMAIL_ID || "").trim().toLowerCase().split("@");
-if (!mbLocal || !mbDomain) { console.error("Need EMAIL_ID (the portal sender mailbox)."); process.exit(1); }
-const BASE = (process.argv[2] || "http://127.0.0.1:5631").replace(/\/$/, "");
+const H = makeHarness(process.argv[2] || "http://127.0.0.1:3001");
+const BASE = H.BASE;
 const RUN = `e2e${Date.now()}`;
 const PREFIX = `[TEST ${RUN}]`;
 const MARK = `CONFIDENTIAL-${RUN}`;
-const emailFor = (p) => `${mbLocal.split("+")[0]}+rpp-${RUN}-${p.toLowerCase()}@${mbDomain}`;
-manifestPath = path.resolve(process.cwd(), `.e2e-manifest-${RUN}.json`);
-manifest = { runId: RUN, baseUrl: BASE, createdAt: new Date().toISOString(), users: {}, paperIds: [], publicationIds: [], issueIds: [], volumeIds: [], storageKeys: [] };
-saveManifest();
-console.log(`Run ${RUN} → ${BASE}\nManifest: ${manifestPath}`);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const KIND = { paperIds: "papers", publicationIds: "publications", issueIds: "issues", volumeIds: "volumes" };
+const rec = (kind, id) => { const list = H.manifest[KIND[kind]]; if (id && !list.includes(id)) list.push(id); };
+const emailFor = (p) => `rpp.it.${RUN}.${p.toLowerCase()}@atlasuniversity.edu.in`;
+console.log(`Run ${RUN} → ${BASE}`);
 
 // ---- Checks ---------------------------------------------------------------------
-let failures = 0, passes = 0;
-function check(label, ok, detail = "") {
-  if (ok) { passes++; console.log(`  ok   ${label}`); }
-  else { failures++; console.log(`  FAIL ${label}${detail ? ` — ${String(detail).slice(0, 300)}` : ""}`); }
-  return ok;
-}
-const warnOnly = (label, ok, detail = "") => console.log(`  ${ok ? "ok  " : "WARN"} ${label}${!ok && detail ? ` — ${detail}` : ""}`);
+const check = (label, ok, detail = "") => H.check(label, ok, detail ? String(detail).slice(0, 300) : "");
 class Abort extends Error {}
 const need = (label, ok, detail) => { if (!check(label, ok, detail)) throw new Abort(label); };
 
@@ -159,7 +50,7 @@ function newJar() {
   };
 }
 async function http(who, method, p, { json, form } = {}) {
-  const headers = { origin: BASE };
+  const headers = { origin: BASE, "x-forwarded-for": who?.ip || "10.77.0.1" };
   if (who?.jar?.m.size) headers.cookie = who.jar.header();
   let body;
   if (json !== undefined) { headers["content-type"] = "application/json"; body = JSON.stringify(json); }
@@ -198,13 +89,11 @@ const pdfForm = (buf, name = "test-manuscript.pdf") => {
 const P = {};
 const PERSONAS = ["ADMIN", "EDITOR", "REV1", "REV2", "DESK", "AUTHOR", "OUTSIDER"];
 async function createPersona(key) {
-  const email = emailFor(key);
-  const password = crypto.randomBytes(24).toString("base64url") + "Aa1!";
   const name = `${PREFIX} ${key}`;
-  const { data, error } = await sb.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { name, base_type: "FACULTY" } });
-  if (error) throw new Abort(`createUser ${key}: ${error.message}`);
-  manifest.users[key] = { id: data.user.id, email }; saveManifest();
-  P[key] = { key, email, name, id: data.user.id, password, jar: newJar() };
+  // Throwaway accounts only; ADMIN is a throwaway administrator (never a real one).
+  const u = key === "ADMIN" ? await H.mkAdmin({ name }) : await H.mkUser({ kind: `${RUN}.${key.toLowerCase()}`, name, baseType: "FACULTY" });
+  // Each persona presents its own client IP (separate rate-limit buckets).
+  P[key] = { key, email: u.email, name, id: u.id, password: u.password, jar: newJar(), ip: `10.77.${PERSONAS.indexOf(key) + 1}.1` };
 }
 async function login(p) {
   const r = await http(p, "POST", "/api/login", { json: { email: p.email, password: p.password } });
@@ -219,10 +108,9 @@ async function run() {
   console.log("\n# Fixtures");
   for (const k of PERSONAS) await createPersona(k);
   check("personas created", PERSONAS.every((k) => P[k]?.id));
-  // ADMIN via service role (bypasses the escalation trigger).
-  const up = await sb.from("profiles").update({ is_admin: true }).eq("id", P.ADMIN.id).select("id");
-  const ur = await sb.from("user_roles").insert({ user_id: P.ADMIN.id, role: "ADMINISTRATOR" });
-  need("test admin provisioned", !up.error && up.data?.length === 1 && !ur.error, up.error?.message || ur.error?.message);
+  const adm = await H.db.one(`SELECT isAdmin FROM \`${H.T.users}\` WHERE id = ?`, [P.ADMIN.id]);
+  need("throwaway test admin provisioned", adm?.isAdmin === true);
+  check("coauthor address unused by any account", !(await H.db.one(`SELECT 1 AS x FROM \`${H.T.users}\` WHERE email = ?`, [emailFor("coauthor")])));
 
   console.log("\n# Login + role grants through the app");
   for (const k of PERSONAS) await login(P[k]);
@@ -356,15 +244,15 @@ async function run() {
   need("ADMIN creates volume", vol.status === 201 && vol.data?.id, brief(vol)); rec("volumeIds", vol.data.id);
   const iss = await http(P.ADMIN, "POST", "/api/publications/issues", { json: { volumeId: vol.data.id, issueNumber: 1, title: `${PREFIX} Issue` } });
   need("ADMIN creates issue", iss.status === 201 && iss.data?.id, brief(iss)); rec("issueIds", iss.data.id);
-  const { data: ms } = await sb.from("paper_manuscripts").select("id, version, storage_key").eq("paper_id", pid);
-  (ms || []).forEach((m) => { if (!manifest.storageKeys.includes(m.storage_key)) manifest.storageKeys.push(m.storage_key); }); saveManifest();
+  const ms = await H.db.query(`SELECT id, version, storage_key FROM \`${H.T.paperManuscripts}\` WHERE paper_id = ?`, [pid]);
+  check("original + revised manuscript records (v0, v1)", ms.length === 2 && ms.some((m) => m.version === 0) && ms.some((m) => m.version === 1));
   const finalMs = (ms || []).find((m) => m.version === 1);
   const pubMeta = { paperId: pid, volumeId: vol.data.id, issueId: iss.data.id, title: `${PREFIX} Live E2E paper`, abstract: "Published test abstract.",
     authors: [{ name: authorNames[0], affiliation: "Test Affiliation" }], keywords: ["e2e", RUN], manuscriptId: finalMs?.id, manuscriptPublic: false };
   const sch = await http(P.EDITOR, "POST", "/api/publications", { json: pubMeta });
   need("EDITOR schedules publication", sch.status === 201 && sch.data?.id, brief(sch));
   const pubId = sch.data.id; rec("publicationIds", pubId);
-  const { data: pubRow } = await sb.from("publications").select("version").eq("id", pubId).single();
+  const pubRow = await H.db.one(`SELECT version FROM \`${H.T.publications}\` WHERE id = ?`, [pubId]);
   const pp = await http(P.EDITOR, "PATCH", `/api/publications/${pubId}`, { json: { ...pubMeta, manuscriptPublic: true, expectedVersion: pubRow.version } });
   check("EDITOR sets manuscriptPublic=true", pp.status === 200, brief(pp));
   const evp = await http(P.EDITOR, "PATCH", `/api/publications/volumes/${vol.data.id}`, { json: { status: "PUBLISHED" } });
@@ -387,11 +275,10 @@ async function run() {
   const pm = await http(null, "GET", `/api/public/publications/${pubId}/manuscript`);
   check("anon public manuscript 200 (PDF)", pm.status === 200 && pm.buf.subarray(0, 5).toString() === "%PDF-", brief(pm));
   // Non-public case: flip the flag on THIS test row only (published rows can't be edited via the API).
-  const flip = await sb.from("publications").update({ manuscript_public: false }).eq("id", pubId).eq("paper_id", pid).select("id");
-  if (!flip.error && flip.data?.length === 1) {
-    const pm2 = await http(null, "GET", `/api/public/publications/${pubId}/manuscript`);
-    check("anon non-public manuscript → 4xx", pm2.status >= 400 && pm2.status < 500, brief(pm2));
-  } else warnOnly("could not flip manuscript_public for the non-public check", false, flip.error?.message);
+  const flip = await H.db.exec(`UPDATE \`${H.T.publications}\` SET manuscript_public = 0 WHERE id = ? AND paper_id = ?`, [pubId, pid]);
+  check("flipped manuscript_public on THIS test row only", flip.affectedRows === 1);
+  const pm2 = await http(null, "GET", `/api/public/publications/${pubId}/manuscript`);
+  check("anon non-public manuscript → 4xx", pm2.status >= 400 && pm2.status < 500, brief(pm2));
 
   console.log("\n# Dashboards / activity / author confidentiality");
   for (const k of ["AUTHOR", "REV1", "EDITOR", "ADMIN"]) {
@@ -412,25 +299,16 @@ async function run() {
   const after = await http(P.OUTSIDER, "GET", "/api/dashboard");
   check("after logout → 401", after.status === 401, brief(after));
   const replay = await http({ jar: { m: stale, header: () => [...stale].map(([k, v]) => `${k}=${v}`).join("; "), absorb() {} } }, "GET", "/api/dashboard");
-  warnOnly("replayed pre-logout cookies rejected (401)", replay.status === 401, `${replay.status}: access token may stay valid until expiry`);
+  check("replayed pre-logout session cookie rejected (401, revoked server-side)", replay.status === 401, brief(replay));
 }
 
 // ---- Main ------------------------------------------------------------------------------
-let cleaned = false;
-async function finish() {
-  if (cleaned) return; cleaned = true;
-  await sleep(3000); // let after()-scheduled notifications finish before users vanish
-  const probs = await cleanup(manifest).catch((e) => { console.log(`  cleanup crashed: ${e.message}`); return 1; });
-  console.log(`\n== SUMMARY: ${passes} passed, ${failures} failed${probs ? `, ${probs} cleanup problem(s)` : ""} ==`);
-  if (probs) console.log(`Re-run cleanup: node --env-file=.env.local scripts/test-e2e-live.mjs --cleanup ${manifestPath}`);
-  process.exit(failures || probs ? 1 : 0);
-}
-process.on("SIGINT", () => { console.log("\nInterrupted — cleaning up…"); failures++; finish(); });
 try {
   await run();
 } catch (e) {
-  if (!(e instanceof Abort)) { failures++; console.log(`  FAIL unexpected error — ${e?.message}`); }
+  if (!(e instanceof Abort)) H.fail(e);
   else console.log(`  (aborted workflow after: ${e.message})`);
 } finally {
-  await finish();
+  await sleep(3000); // let after()-scheduled notifications finish before users vanish
+  await H.finish("live end-to-end workflow");
 }

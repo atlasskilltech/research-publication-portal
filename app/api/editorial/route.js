@@ -8,7 +8,8 @@
 // decision (no confidential notes) and revision status.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T } from "@/lib/db";
+import { usersByIds } from "@/lib/repos/users.mjs";
 import { REVIEWER_ROLES, deadlineState } from "@/lib/reviewLogic";
 import { latestRevision, displayStatus } from "@/lib/revisionLogic";
 import { editorialCategory, DECISION_LABEL } from "@/lib/decisionLogic";
@@ -23,39 +24,31 @@ export async function GET() {
   if (!me) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   try {
-    const admin = createAdminClient();
-
-    // Scope: all papers for admins; otherwise only papers where I am EDITOR.
-    let paperQ = admin
-      .from("papers")
-      .select("id, title, status, current_round, created_at, updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(500);
-    if (me.isAdmin) paperQ = paperQ.neq("submitted_by", me.id); // never manage own paper
-    else {
-      const { data: mine } = await admin.from("paper_assignments").select("paper_id").eq("assignee", me.id).eq("role", "EDITOR");
-      const ids = [...new Set((mine || []).map((a) => a.paper_id))];
+    // Scope: all papers for admins (never their own — an author never manages
+    // their paper); otherwise only papers where I am EDITOR.
+    const PAPER_COLS = `SELECT id, title, status, current_round, created_at, updated_at FROM \`${T.papers}\``;
+    let papers;
+    if (me.isAdmin) {
+      papers = await db.query(`${PAPER_COLS} WHERE submitted_by <> ? ORDER BY updated_at DESC LIMIT 500`, [me.id]);
+    } else {
+      const mine = await db.query(`SELECT paper_id FROM \`${T.paperAssignments}\` WHERE assignee = ? AND role = 'EDITOR'`, [me.id]);
+      const ids = [...new Set(mine.map((a) => a.paper_id))];
       if (!ids.length) return NextResponse.json({ scope: "none", summary: emptySummary(), papers: [], editors: [] });
-      paperQ = paperQ.in("id", ids);
+      papers = await db.query(`${PAPER_COLS} WHERE id IN (?) ORDER BY updated_at DESC LIMIT 500`, [ids]);
     }
-    const { data: papers, error } = await paperQ;
-    if (error) throw error;
-    if (!papers?.length) return NextResponse.json({ scope: me.isAdmin ? "all" : "editor", summary: emptySummary(), papers: [], editors: [] });
+    if (!papers.length) return NextResponse.json({ scope: me.isAdmin ? "all" : "editor", summary: emptySummary(), papers: [], editors: [] });
 
     const ids = papers.map((p) => p.id);
-    const [{ data: assigns }, { data: reviews }, { data: decisions }, { data: revisions }] = await Promise.all([
-      admin.from("paper_assignments").select("paper_id, assignee, role, due_at").in("paper_id", ids),
-      admin.from("reviews").select("paper_id, reviewer, round, status").in("paper_id", ids),
-      admin.from("editorial_decisions").select("paper_id, round, decision, released_at, updated_at").in("paper_id", ids),
-      admin.from("paper_revisions").select("paper_id, round, revision_type, status, due_at").in("paper_id", ids),
+    const [assigns, reviews, decisions, revisions] = await Promise.all([
+      db.query(`SELECT paper_id, assignee, role, due_at FROM \`${T.paperAssignments}\` WHERE paper_id IN (?)`, [ids]),
+      db.query(`SELECT paper_id, reviewer, round, status FROM \`${T.reviews}\` WHERE paper_id IN (?)`, [ids]),
+      db.query(`SELECT paper_id, round, decision, released_at, updated_at FROM \`${T.editorialDecisions}\` WHERE paper_id IN (?)`, [ids]),
+      db.query(`SELECT paper_id, round, revision_type, status, due_at FROM \`${T.paperRevisions}\` WHERE paper_id IN (?)`, [ids]),
     ]);
 
-    const editorIds = [...new Set((assigns || []).filter((a) => a.role === "EDITOR").map((a) => a.assignee))];
+    const editorIds = [...new Set(assigns.filter((a) => a.role === "EDITOR").map((a) => a.assignee))];
     const nameById = new Map();
-    if (editorIds.length) {
-      const { data: profs } = await admin.from("profiles").select("id, name, email").in("id", editorIds);
-      (profs || []).forEach((p) => nameById.set(p.id, p.name || p.email));
-    }
+    (await usersByIds(db, editorIds)).forEach((p) => nameById.set(p.id, p.name || p.email));
 
     const group = (list) => {
       const m = new Map();
@@ -119,7 +112,7 @@ export async function GET() {
       editors: editorIds.map((id) => ({ id, name: nameById.get(id) || null })),
     });
   } catch (e) {
-    console.error("editorial GET:", e?.message);
+    console.error("editorial GET:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not load the editorial dashboard." }, { status: 500 });
   }
 }

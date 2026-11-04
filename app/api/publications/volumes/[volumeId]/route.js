@@ -1,9 +1,10 @@
 // Edit a volume (administrators only).
 //   PATCH { volumeNumber, year, title, description }  → metadata (not once PUBLISHED)
-//   PATCH { status: DRAFT|SCHEDULED|PUBLISHED }       → status via set_volume_status()
+//   PATCH { status: DRAFT|SCHEDULED|PUBLISHED }       → status via setVolumeStatus (lib/services/workflow.mjs)
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T, isDuplicate } from "@/lib/db";
+import { setVolumeStatus } from "@/lib/services/workflow.mjs";
 import { canManageVolumes, validateVolume, canTransitionContainer, isUuid, dbErrorToHttp } from "@/lib/publicationLogic";
 
 export const runtime = "nodejs";
@@ -20,8 +21,7 @@ export async function PATCH(request, { params }) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid request body." }, { status: 400 }); }
 
   try {
-    const admin = createAdminClient();
-    const { data: vol } = await admin.from("volumes").select("id, status").eq("id", volumeId).maybeSingle();
+    const vol = await db.one(`SELECT id, status FROM \`${T.volumes}\` WHERE id = ?`, [volumeId]);
     if (!vol) return NextResponse.json({ error: "Volume not found." }, { status: 404 });
 
     if (body?.status !== undefined) {
@@ -29,8 +29,9 @@ export async function PATCH(request, { params }) {
       if (!canTransitionContainer(vol.status, to)) {
         return NextResponse.json({ error: vol.status === "PUBLISHED" ? "A published volume cannot change status." : "Invalid status change." }, { status: 409 });
       }
-      const { error } = await admin.rpc("set_volume_status", { p_volume: volumeId, p_actor: me.id, p_status: to });
-      if (error) {
+      try {
+        await setVolumeStatus(db, { volumeId, actorId: me.id, status: to });
+      } catch (error) {
         const http = dbErrorToHttp(error);
         if (http) return NextResponse.json({ error: http.error }, { status: http.status });
         throw error;
@@ -41,17 +42,22 @@ export async function PATCH(request, { params }) {
     if (vol.status === "PUBLISHED") return NextResponse.json({ error: "A published volume can no longer be edited." }, { status: 409 });
     const v = validateVolume(body);
     if (!v.ok) return NextResponse.json({ error: "Please fix the highlighted fields.", issues: v.fields }, { status: 422 });
-    // Conditional on still not published (guards a concurrent publish).
-    const { data: upd, error } = await admin.from("volumes").update(v.value).eq("id", volumeId).neq("status", "PUBLISHED").select("id");
-    if (error) {
-      const http = dbErrorToHttp(error);
-      if (http) return NextResponse.json({ error: http.error }, { status: http.status });
+    const val = v.value;
+    let upd;
+    try {
+      // Conditional on still not published (guards a concurrent publish).
+      upd = await db.exec(
+        `UPDATE \`${T.volumes}\` SET volume_number = ?, year = ?, title = ?, description = ? WHERE id = ? AND status <> 'PUBLISHED'`,
+        [val.volume_number, val.year, val.title, val.description ?? "", volumeId],
+      );
+    } catch (error) {
+      if (isDuplicate(error)) return NextResponse.json({ error: "A volume with this number already exists for that year." }, { status: 409 });
       throw error;
     }
-    if (!upd?.length) return NextResponse.json({ error: "A published volume can no longer be edited." }, { status: 409 });
+    if (upd.affectedRows !== 1) return NextResponse.json({ error: "A published volume can no longer be edited." }, { status: 409 });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error("volume PATCH:", e?.message);
+    console.error("volume PATCH:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not update the volume." }, { status: 500 });
   }
 }

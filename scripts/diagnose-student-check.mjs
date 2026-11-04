@@ -4,7 +4,7 @@
  * "present", and the upstream response is reduced to its SHAPE (keys + value
  * TYPES, with booleans/numbers/short enums kept, all other strings masked).
  *
- * Requires NEXT_PUBLIC_SUPABASE_URL is irrelevant; needs STUDENT_CHECK_API_KEY
+ * Needs STUDENT_CHECK_API_KEY
  * (+ optional STUDENT_CHECK_API_URL). Run:
  *   node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/diagnose-student-check.mjs [appId]
  */

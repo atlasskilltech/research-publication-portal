@@ -1,6 +1,6 @@
 // Forgot password. Same neutral answer whether or not the account exists;
 // shares the resend rate limiter (per IP + per address).
-//   verified account   → Supabase recovery link (generateLink) → Resend "Reset your password" → /reset-password
+//   verified account   → single-use recovery link (generateLink) → SMTP "Reset your password" → /reset-password
 //   unverified account → a fresh setup invite instead (they never had a password)
 //   unknown / not allowed → nothing sent
 //   POST { email } → 200 { ok, message } | 422 | 429

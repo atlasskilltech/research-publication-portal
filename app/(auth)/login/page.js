@@ -5,6 +5,8 @@ import LoginForm from "@/components/auth/LoginForm";
 import FragmentScrubber from "@/components/auth/FragmentScrubber";
 import { BRAND } from "@/lib/constants";
 import { safeNextPath } from "@/lib/authFlow";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
+import { GOOGLE_NOTICES } from "@/lib/oauthPolicy";
 
 const STAGES = [
   ["01", "Shortlist"],
@@ -21,11 +23,14 @@ const NOTICES = {
   password_reset: { kind: "ok", text: "Your password has been reset. Sign in with your email and new password." },
   link_invalid: { kind: "warn", text: "That setup link is invalid or has expired. Request a new setup email below." },
   link_expired: { kind: "warn", text: "That setup link has expired or has already been used. Request a new setup email below." },
+  // Google Sign-In outcomes (set by /auth/google, /auth/callback, middleware).
+  ...Object.fromEntries(Object.entries(GOOGLE_NOTICES).map(([k, text]) => [k, { kind: "warn", text }])),
 };
 
 export default async function LoginPage({ searchParams }) {
   const sp = (await searchParams) || {};
-  const notice = NOTICES[sp.notice];
+  const notice = Object.hasOwn(NOTICES, sp.notice) ? NOTICES[sp.notice] : null;
+  const next = safeNextPath(sp.callbackUrl);
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-2">
       {/* ---- Hero (desktop) ---- */}
@@ -94,7 +99,17 @@ export default async function LoginPage({ searchParams }) {
             </div>
           )}
 
-          <LoginForm next={safeNextPath(sp.callbackUrl)} />
+          <div className="mt-6">
+            <GoogleSignInButton next={next} />
+          </div>
+
+          <div className="mt-6 flex items-center gap-3" role="separator" aria-label="or">
+            <span className="h-px flex-1 bg-line" />
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted">or use your password</span>
+            <span className="h-px flex-1 bg-line" />
+          </div>
+
+          <LoginForm next={next} />
 
           <p className="mt-6 text-sm text-muted">
             First submission?{" "}

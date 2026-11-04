@@ -3,8 +3,9 @@
 //   POST { volumeId, issueNumber, title, description?, publicationDate? }
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { canManageVolumes, validateIssue, dbErrorToHttp } from "@/lib/publicationLogic";
+import { db, T, isDuplicate } from "@/lib/db";
+import { uuid } from "@/lib/auth/crypto.mjs";
+import { canManageVolumes, validateIssue } from "@/lib/publicationLogic";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,18 +21,23 @@ export async function POST(request) {
   if (!v.ok) return NextResponse.json({ error: "Please fix the highlighted fields.", issues: v.fields }, { status: 422 });
 
   try {
-    const admin = createAdminClient();
-    const { data: vol } = await admin.from("volumes").select("id").eq("id", v.value.volume_id).maybeSingle();
+    const val = v.value;
+    const vol = await db.one(`SELECT id FROM \`${T.volumes}\` WHERE id = ?`, [val.volume_id]);
     if (!vol) return NextResponse.json({ error: "Volume not found." }, { status: 404 });
-    const { data, error } = await admin.from("issues").insert({ ...v.value, created_by: me.id }).select("id").single();
-    if (error) {
-      const http = dbErrorToHttp(error);
-      if (http) return NextResponse.json({ error: http.error }, { status: http.status });
+    const id = uuid();
+    try {
+      await db.exec(
+        `INSERT INTO \`${T.issues}\` (id, volume_id, issue_number, title, description, publication_date, status, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))`,
+        [id, val.volume_id, val.issue_number, val.title, val.description ?? "", val.publication_date || null, me.id],
+      );
+    } catch (error) {
+      if (isDuplicate(error)) return NextResponse.json({ error: "This volume already has an issue with that number." }, { status: 409 });
       throw error;
     }
-    return NextResponse.json({ ok: true, id: data.id }, { status: 201 });
+    return NextResponse.json({ ok: true, id }, { status: 201 });
   } catch (e) {
-    console.error("issues POST:", e?.message);
+    console.error("issues POST:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not create the issue." }, { status: 500 });
   }
 }

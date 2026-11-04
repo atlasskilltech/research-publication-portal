@@ -1,115 +1,79 @@
 /**
- * LIVE account-flow test through the app's own endpoints (running server) +
- * the existing Supabase project. Uses throwaway accounts that are
- * plus-addresses of EMAIL_ID (mail lands only in the portal's own mailbox) and
- * deletes them at the end. Never touches real accounts.
+ * LIVE account flows through the app's own endpoints (running server, MySQL):
+ * registration, duplicate registration, unverified login refused, resend,
+ * forgot password (neutral, no enumeration), reset via a RECOVERY link
+ * (confirm → RESET session → /reset-password → new password), session
+ * revocation on reset, old password refused / new accepted, reused + invalid
+ * tokens rejected, login + reset rate limiting.
  *
- * Covers: registration (+ invite email via SMTP), duplicate registration,
- * unconfirmed login refused, resend, forgot password (+ reset email),
- * reset via the emailed token type (recovery → verifyOtp → new password),
- * old password refused / new accepted, reused + invalid tokens rejected,
- * rate limiting.
+ * Throwaway rpp.it.* accounts only (deleted at the end). With SMTP disabled the
+ * emails are not delivered; the test issues the equivalent token itself.
  *
- *   RPP_E2E_CONFIRM=yes node --env-file=.env.local scripts/test-auth-live-app.mjs [baseUrl]
+ * Run: node scripts/test-auth-live-app.mjs http://localhost:3001   (DB_* = the app's DB)
  */
-import { createClient } from "@supabase/supabase-js";
-import crypto from "node:crypto";
+import { makeHarness } from "./lib/test-db.mjs";
 
-if (process.env.RPP_E2E_CONFIRM !== "yes") { console.error("Set RPP_E2E_CONFIRM=yes (writes throwaway test accounts)."); process.exit(1); }
-const BASE = (process.argv[2] || "http://127.0.0.1:5631").replace(/\/$/, "");
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL, secret = process.env.SUPABASE_SECRET_KEY, pub = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-const [local, domain] = (process.env.EMAIL_ID || "").trim().toLowerCase().split("@");
-if (!url || !secret || !pub || !local) { console.error("Need Supabase env + EMAIL_ID."); process.exit(1); }
-const admin = createClient(url, secret, { auth: { autoRefreshToken: false, persistSession: false } });
-const anonClient = () => createClient(url, pub, { auth: { autoRefreshToken: false, persistSession: false } });
+const h = makeHarness(process.argv[2]);
+const { check } = h;
 
-const RUN = `auth${Date.now()}`;
-const TAG = `+rpp-${RUN}-`;
-const mail = (p) => `${local}${TAG}${p}@${domain}`;
-const created = [];
-let failures = 0;
-const check = (l, ok, d = "") => { console.log(`  ${ok ? "✓" : "✗"} ${l}${!ok && d ? " — " + d : ""}`); if (!ok) failures++; };
-const post = async (p, body) => {
-  const r = await fetch(BASE + p, { method: "POST", headers: { "content-type": "application/json", origin: BASE }, body: JSON.stringify(body) });
-  let data = null; try { data = await r.json(); } catch {}
-  return { status: r.status, data };
-};
-async function idOf(email) {
-  for (let page = 1; page <= 20; page++) {
-    const { data } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-    const u = data.users.find((x) => (x.email || "").toLowerCase() === email);
-    if (u) return u;
-    if (data.users.length < 200) return null;
-  }
-  return null;
-}
+async function main() {
+  console.log(`\n=== Live account flows (app ${h.BASE}) ===\n`);
+  const br = h.browser();
+  const post = (p, json, b = br) => b.api(p, { method: "POST", json });
 
-try {
-  console.log(`\nRegistration (${RUN})`);
-  const regEmail = mail("faculty");
-  const reg = await post("/api/register", { name: `[TEST ${RUN}] Faculty`, email: regEmail, baseType: "FACULTY" });
+  console.log("Registration:");
+  const regEmail = h.email("faculty");
+  const reg = await post("/api/register", { name: "IT Faculty", email: regEmail, baseType: "FACULTY" });
   check("register faculty → 201", reg.status === 201, `${reg.status} ${reg.data?.error || ""}`);
-  const ru = await idOf(regEmail);
-  if (ru) created.push(ru.id);
-  check("account created, email NOT yet confirmed", !!ru && !ru.email_confirmed_at);
-  const { data: prof } = ru ? await admin.from("profiles").select("is_admin, base_type").eq("id", ru.id).maybeSingle() : { data: null };
-  check("profile: FACULTY, never admin", prof?.base_type === "FACULTY" && prof?.is_admin === false, JSON.stringify(prof));
-  const dup = await post("/api/register", { name: `[TEST ${RUN}] Faculty`, email: regEmail, baseType: "FACULTY" });
-  check("duplicate registration handled (201 re-invite or 409), no 5xx", [201, 409].includes(dup.status), String(dup.status));
-  const bad = await post("/api/register", { name: "X Y", email: `someone${TAG}x@gmail.com`, baseType: "FACULTY" });
-  check("non-university email rejected (422)", bad.status === 422, String(bad.status));
-  const login0 = await post("/api/login", { email: regEmail, password: "Whatever-123456" });
-  check("unconfirmed account cannot log in (401)", login0.status === 401, String(login0.status));
+  check("SMTP down → account kept, emailSent=false + resend instruction", reg.data?.emailSent === false && /Resend setup email/.test(reg.data?.message || ""));
+  const ru = await h.track(regEmail);
+  check("FACULTY, never admin, unverified", ru?.base_type === "FACULTY" && ru?.is_admin === false && !ru?.email_confirmed_at);
+  const dup = await post("/api/register", { name: "IT Faculty", email: regEmail, baseType: "FACULTY" });
+  check("duplicate registration → 409, no second account", dup.status === 409 && Number((await h.db.one(`SELECT COUNT(*) AS n FROM \`${h.T.users}\` WHERE email = ?`, [regEmail])).n) === 1);
+  check("non-university email rejected (422)", (await post("/api/register", { name: "X Y", email: `it.${h.tag()}@gmail.com`, baseType: "FACULTY" })).status === 422);
+  check("unverified account cannot log in (401)", (await br.login(regEmail, "Whatever#123456")) === 401);
+  const before = await h.db.one(`SELECT COUNT(*) AS n FROM \`${h.T.authTokens}\` WHERE user_id = ?`, [ru.id]);
   const rs = await post("/api/auth/resend", { email: regEmail });
-  check("resend setup email → 200", rs.status === 200, String(rs.status));
+  const after = await h.db.one(`SELECT COUNT(*) AS n, SUM(consumed_at IS NULL) AS live FROM \`${h.T.authTokens}\` WHERE user_id = ?`, [ru.id]);
+  check("resend → 200 neutral; a fresh INVITE replaces the old one (1 live)", rs.status === 200 && Number(after.n) === Number(before.n) + 1 && Number(after.live) === 1);
+  const rsUnknown = await post("/api/auth/resend", { email: h.email("ghost") });
+  check("resend for unknown email → identical response", rsUnknown.status === rs.status && rsUnknown.data?.message === rs.data?.message);
 
-  console.log("\nForgot / reset password");
-  const userEmail = mail("member");
-  const oldPw = crypto.randomBytes(18).toString("base64url") + "Aa1!";
-  const { data: cu, error: ce } = await admin.auth.admin.createUser({ email: userEmail, password: oldPw, email_confirm: true, user_metadata: { name: `[TEST ${RUN}] Member`, base_type: "FACULTY" } });
-  if (cu?.user) created.push(cu.user.id);
-  check("confirmed test member created", !ce && !!cu?.user, ce?.message);
-  check("member logs in with password", (await post("/api/login", { email: userEmail, password: oldPw })).status === 200);
-  const fp = await post("/api/auth/forgot-password", { email: userEmail });
-  check("forgot password → 200 (reset email sent)", fp.status === 200, String(fp.status));
-  const fpUnknown = await post("/api/auth/forgot-password", { email: mail("nobody") });
-  check("unknown email gets the SAME response (no account probing)", fpUnknown.status === fp.status);
+  console.log("\nForgot / reset password:");
+  const member = await h.mkUser({ kind: "member" });
+  check("member logs in with password", (await br.login(member.email, member.password)) === 200);
+  const other = h.browser();
+  check("member also signed in on a second device", (await other.login(member.email, member.password)) === 200);
+  const fp = await post("/api/auth/forgot-password", { email: member.email }, h.browser());
+  check("forgot password → 200 + a RECOVERY token issued", fp.status === 200 && !!(await h.db.one(`SELECT 1 AS x FROM \`${h.T.authTokens}\` WHERE user_id = ? AND purpose = 'RECOVERY'`, [member.id])));
+  const fpUnknown = await post("/api/auth/forgot-password", { email: h.email("nobody") }, h.browser());
+  check("unknown email gets the SAME response (no account probing)", fpUnknown.status === fp.status && fpUnknown.data?.message === fp.data?.message);
 
-  // The emailed link carries a recovery token_hash; generate an equivalent one
-  // (the emailed one stays in the mailbox) and redeem it exactly as /auth/confirm does.
-  const { data: gl, error: ge } = await admin.auth.admin.generateLink({ type: "recovery", email: userEmail });
-  check("recovery token generated", !ge && !!gl?.properties?.hashed_token, ge?.message);
-  const c1 = anonClient();
-  const v = await c1.auth.verifyOtp({ token_hash: gl.properties.hashed_token, type: "recovery" });
-  check("recovery token verifies once", !v.error && !!v.data?.session, v.error?.message);
-  const newPw = crypto.randomBytes(18).toString("base64url") + "Bb2@";
-  const upd = await c1.auth.updateUser({ password: newPw });
-  check("new password set", !upd.error, upd.error?.message);
-  const reuse = await anonClient().auth.verifyOtp({ token_hash: gl.properties.hashed_token, type: "recovery" });
-  check("reused token rejected", !!reuse.error);
-  const junk = await anonClient().auth.verifyOtp({ token_hash: crypto.randomBytes(28).toString("hex"), type: "recovery" });
-  check("invalid / expired token rejected", !!junk.error);
-  check("old password refused (401)", (await post("/api/login", { email: userEmail, password: oldPw })).status === 401);
-  check("new password accepted (200)", (await post("/api/login", { email: userEmail, password: newPw })).status === 200);
+  const raw = await h.token(member.id, "RECOVERY");
+  const rb = h.browser();
+  const c = await h.confirmLink(rb, raw, "recovery", "reset");
+  check("recovery link → /reset-password", /\/reset-password$/.test(c.location || ""), `${c.status} → ${c.location}`);
+  { const r = await rb.req("/reset-password"); check("/reset-password renders for the RESET session", r.status === 200); }
+  { const r = await rb.req("/create-password"); check("RESET session can't open /create-password", [302, 303, 307].includes(r.status)); }
+  const newPw = "Reset#NewPass2026";
+  { const r = await rb.api("/api/set-password", { method: "POST", json: { password: newPw, confirm: newPw } }); check("new password saved → 200 (flow reset)", r.status === 200 && r.data?.flow === "reset", `HTTP ${r.status}`); }
+  { const r = await other.api("/api/dashboard"); check("password reset signs out OTHER devices (401)", r.status === 401, `HTTP ${r.status}`); }
+  { const r = await br.api("/api/dashboard"); check("…and this device too", r.status === 401); }
+  const reuse = await h.confirmLink(h.browser(), raw, "recovery", "reset");
+  check("reused reset link rejected", /status=expired/.test(reuse.location || ""), reuse.location);
+  const inviteAsRecovery = await h.confirmLink(h.browser(), await h.token(member.id, "INVITE"), "recovery", "reset");
+  check("invite token can't be used as a recovery link", /status=(invalid|expired)/.test(inviteAsRecovery.location || ""));
+  check("old password refused (401)", (await h.browser().login(member.email, member.password)) === 401);
+  check("new password accepted (200)", (await h.browser().login(member.email, newPw)) === 200);
 
-  console.log("\nRate limiting");
+  console.log("\nRate limiting:");
+  const fixed = h.browser({ ip: `10.250.${Math.floor(Math.random() * 250)}.9` });
   let limited = false;
-  for (let i = 0; i < 15 && !limited; i++) {
-    const r = await post("/api/auth/forgot-password", { email: mail("ratelimit") });
-    if (r.status === 429) limited = true;
-  }
+  for (let i = 0; i < 12 && !limited; i++) limited = (await post("/api/auth/forgot-password", { email: h.email("rl") }, fixed)).status === 429;
   check("repeated reset requests are rate-limited (429)", limited);
-} catch (e) {
-  failures++; console.log(`  ✗ unexpected error — ${e.message}`);
-} finally {
-  // Give after()-scheduled / in-flight emails a moment, then delete only our accounts.
-  await new Promise((r) => setTimeout(r, 2000));
-  for (const id of created) {
-    const { data } = await admin.auth.admin.getUserById(id);
-    if (!(data?.user?.email || "").includes(TAG)) { console.log(`  ! skipped ${id}: not a test address`); continue; }
-    const { error } = await admin.auth.admin.deleteUser(id);
-    console.log(`  cleanup: ${error ? "FAILED " + error.message : "deleted"} ${data.user.email.replace(/^[^+]+/, "***")}`);
-  }
+  let loginLimited = false;
+  const lb = h.browser();
+  for (let i = 0; i < 12 && !loginLimited; i++) loginLimited = (await lb.login(member.email, "Wrong#Password1")) === 429;
+  check("repeated failed logins for one account are rate-limited (429)", loginLimited);
 }
-console.log(failures ? `\n✗ FAIL — ${failures} check(s) failed.\n` : "\n✓ PASS — live account flows work.\n");
-process.exit(failures ? 1 : 0);
+main().catch(h.fail).finally(() => h.finish("live account flows"));

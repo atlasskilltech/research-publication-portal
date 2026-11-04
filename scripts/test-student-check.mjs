@@ -8,7 +8,7 @@
  *   bad input:  400 {"status":0,"msg":"app_id is required"}
  *   bad key:    401 {"status":0,"msg":"Unauthorized"}
  *
- * It touches NO Supabase project and needs NO real API key. It proves the route
+ * It touches NO database and needs NO real API key. It proves the route
  * maps the contract correctly — crucially that status:1 + exists:false is a
  * REJECTION (422), not a pass — that the secret key is forwarded upstream but
  * never leaked to the client, and that failures never become a pass.

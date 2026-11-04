@@ -2,7 +2,7 @@
  * Email service tests with a MOCKED Resend client (no network, no real key):
  * lib/email/core.js (delivery, retry, idempotency, dedupe, config, log hygiene),
  * lib/email/templates.js (branding, escaping, plain text) and lib/authMailer.js
- * (registration + recovery email flows with a mocked Supabase generateLink).
+ * (registration + recovery email flows with a mocked generateLink).
  * Real delivery is NOT tested here — it needs a real RESEND_API_KEY and a
  * verified sender. Run: node scripts/test-email-service.mjs
  */
@@ -190,7 +190,7 @@ console.log("\nServer-only boundaries:");
   check("RESEND_API_KEY read from server env only (never NEXT_PUBLIC_)", /process\.env\.RESEND_API_KEY/.test(env) && !/NEXT_PUBLIC_RESEND|NEXT_PUBLIC_EMAIL/.test(env + read("../.env.example")));
   const clientFiles = ["../components/auth/CreatePasswordForm.jsx", "../components/auth/ResendSetupForm.jsx", "../components/auth/FragmentScrubber.jsx", "../components/auth/ConfirmSubmit.jsx"];
   check("no client component imports the email service", clientFiles.every((f) => !/lib\/email|resend/i.test(read(f).replace(/\/api\/auth\/resend|ResendSetup|Resend setup/g, ""))));
-  check(".env.example documents RESEND_API_KEY / EMAIL_FROM / EMAIL_FROM_NAME / EMAIL_REPLY_TO with no values", /^RESEND_API_KEY=\s*$/m.test(read("../.env.example")) && /^EMAIL_FROM=\s*$/m.test(read("../.env.example")) && /^EMAIL_FROM_NAME=Research Publication Portal\s*$/m.test(read("../.env.example")) && /^EMAIL_REPLY_TO=\s*$/m.test(read("../.env.example")));
+  check(".env.example documents the SMTP settings (EMAIL_ID / EMAIL_APP_PASSWORD placeholders, EMAIL_FROM_NAME, empty EMAIL_REPLY_TO)", /^EMAIL_ID=you@example\.com\s*$/m.test(read("../.env.example")) && /^EMAIL_APP_PASSWORD=x+\s*$/m.test(read("../.env.example")) && /^EMAIL_FROM_NAME=Research Publication Portal\s*$/m.test(read("../.env.example")) && /^EMAIL_REPLY_TO=\s*$/m.test(read("../.env.example")));
   check("no hard-coded Resend key or sender address in lib/", !/re_[A-Za-z0-9]{20,}/.test(read("../lib/email/core.js") + resendJs + read("../lib/authMailer.js")) && !/@atlasskilltech\.app|@atlasuniversity\.edu\.in/.test(resendJs + read("../lib/email/core.js")));
 }
 
@@ -212,10 +212,10 @@ console.log("\nTemplates:");
   check("escapeHtml", escapeHtml(`<a href="x">'&`) === "&lt;a href=&quot;x&quot;&gt;&#39;&amp;");
   const ed = editorialNotificationEmail({ siteUrl: site, subject: "Decision available", heading: "A decision is available", paragraphs: ["Sign in to view it."], cta: { label: "Open portal", url: `${site}/login` } });
   check("editorial notification structure ready (reusable layout)", ed.subject === "Decision available" && /A decision is available/.test(ed.html) && ed.text.includes(`${site}/login`));
-  check("no Supabase {{ .ConfirmationURL }} anywhere in app templates", !/ConfirmationURL/.test(read("../lib/email/templates.js")));
+  check("no hosted-auth {{ .ConfirmationURL }} placeholder anywhere in app templates", !/ConfirmationURL/.test(read("../lib/email/templates.js")));
 }
 
-console.log("\nRegistration email flow (mock Supabase generateLink + mock Resend):");
+console.log("\nRegistration email flow (mock generateLink + mock mail client):");
 {
   const sent = [];
   const genCalls = [];
@@ -227,7 +227,7 @@ console.log("\nRegistration email flow (mock Supabase generateLink + mock Resend
     ...over,
   });
   const r = await deliverInvite({ email: "new@atlasuniversity.edu.in", data: { name: "N", base_type: "STUDENT" } }, deps());
-  check("Supabase asked for an INVITE link with metadata + redirect", genCalls[0].type === "invite" && genCalls[0].options.data.base_type === "STUDENT" && genCalls[0].options.redirectTo.endsWith("/auth/confirm"));
+  check("generateLink asked for an INVITE link with metadata + redirect", genCalls[0].type === "invite" && genCalls[0].options.data.base_type === "STUDENT" && genCalls[0].options.redirectTo.endsWith("/auth/confirm"));
   check("one email, to the registrant, with our /auth/confirm link", r.ok && r.emailSent && sent.length === 1 && sent[0].to === "new@atlasuniversity.edu.in" && sent[0].html.includes(`/auth/confirm?token_hash=${TOKEN}&amp;type=invite&amp;flow=setup`));
   check("Supabase's own action_link (implicit flow) is NOT used", !sent[0].html.includes("/auth/v1/verify"));
   check("idempotency key bound to user + token", sent[0].key === idempotencyKey("invite", "user-123", TOKEN));

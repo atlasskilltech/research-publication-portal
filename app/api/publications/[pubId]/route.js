@@ -5,8 +5,9 @@
 //           pageStart?, pageEnd?, doi?, publicationDate?, manuscriptId?, manuscriptPublic? }
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T, isDuplicate } from "@/lib/db";
 import { loadPaperContext } from "@/lib/paperAccess";
+import { updatePublication } from "@/lib/services/workflow.mjs";
 import { validatePublicationMeta, issueBelongsToVolume, isUuid, dbErrorToHttp } from "@/lib/publicationLogic";
 
 export const runtime = "nodejs";
@@ -26,35 +27,38 @@ export async function PATCH(request, { params }) {
   if (!v.ok) return NextResponse.json({ error: "Please fix the highlighted fields.", issues: v.fields }, { status: 422 });
 
   try {
-    const admin = createAdminClient();
-    const { data: pub } = await admin.from("publications").select("id, paper_id, status, version").eq("id", pubId).maybeSingle();
+    const pub = await db.one(`SELECT id, paper_id, status, version FROM \`${T.publications}\` WHERE id = ?`, [pubId]);
     if (!pub) return NextResponse.json({ error: "Publication not found." }, { status: 404 });
-    const ctx = await loadPaperContext(admin, pub.paper_id, me);
+    const ctx = await loadPaperContext(db, pub.paper_id, me);
     if (!ctx?.canManage) return NextResponse.json({ error: "Only an administrator or the paper's editor can edit this publication." }, { status: 403 });
     if (pub.status === "PUBLISHED") return NextResponse.json({ error: "A published record can no longer be edited." }, { status: 409 });
     if (pub.version !== expectedVersion) return NextResponse.json({ error: "This record was changed by someone else. Reload and try again." }, { status: 409 });
 
-    const { data: issue } = await admin.from("issues").select("id, volume_id").eq("id", v.value.issueId).maybeSingle();
+    const issue = await db.one(`SELECT id, volume_id FROM \`${T.issues}\` WHERE id = ?`, [v.value.issueId]);
     if (!issue) return NextResponse.json({ error: "Issue not found." }, { status: 404 });
     if (!issueBelongsToVolume(issue, v.value.volumeId)) {
       return NextResponse.json({ error: "The selected issue does not belong to the selected volume.", issues: { issueId: "Not in this volume." } }, { status: 422 });
     }
 
     const val = v.value;
-    const { data: version, error } = await admin.rpc("update_publication", {
-      p_pub: pubId, p_actor: me.id, p_expected_version: expectedVersion, p_volume: val.volumeId, p_issue: val.issueId,
-      p_title: val.title, p_abstract: val.abstract, p_authors: val.authors, p_keywords: val.keywords,
-      p_page_start: val.pageStart, p_page_end: val.pageEnd, p_doi: val.doi, p_pub_date: val.publicationDate,
-      p_manuscript: val.manuscriptId, p_manuscript_public: val.manuscriptPublic,
-    });
-    if (error) {
+    let version;
+    try {
+      version = await updatePublication(db, {
+        pubId, actorId: me.id, expectedVersion, volumeId: val.volumeId, issueId: val.issueId,
+        title: val.title, abstract: val.abstract, authors: val.authors, keywords: val.keywords,
+        pageStart: val.pageStart, pageEnd: val.pageEnd, doi: val.doi, publicationDate: val.publicationDate,
+        manuscriptId: val.manuscriptId, manuscriptPublic: val.manuscriptPublic,
+      });
+    } catch (error) {
+      // The only unique key an update can hit is the DOI.
+      if (isDuplicate(error)) return NextResponse.json({ error: "Another publication already uses this DOI." }, { status: 409 });
       const http = dbErrorToHttp(error);
       if (http) return NextResponse.json({ error: http.error }, { status: http.status });
       throw error;
     }
     return NextResponse.json({ ok: true, version });
   } catch (e) {
-    console.error("publication PATCH:", e?.message);
+    console.error("publication PATCH:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not update the publication." }, { status: 500 });
   }
 }

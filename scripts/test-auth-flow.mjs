@@ -1,7 +1,7 @@
 /**
  * Isolated tests for the registration → email → verify → create password →
  * sign-in flow (lib/authFlow.js + the real email templates). NO network and NO
- * database: Supabase Auth is replaced by an in-memory fake that models the
+ * database: the MySQL auth store is replaced by an in-memory fake that models the
  * behaviours that matter (single-use, expiring token hashes; a session after
  * verifyOtp; password sign-in). It is a model, not the real service — the live
  * production email link still has to be tested by hand.
@@ -10,8 +10,8 @@
 import crypto from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
-  parseVerificationParams, classifyVerifyError, emailRedirectUrl, AFTER_VERIFY_PATH, createSetupToken,
-  verifySetupToken, validatePasswordPair, passwordStrength, verifyLink, setPassword, resendSetupEmail,
+  parseVerificationParams, classifyVerifyError, emailRedirectUrl, AFTER_VERIFY_PATH,
+  validatePasswordPair, passwordStrength, verifyLink, setPassword, resendSetupEmail,
   resendAction, RESEND_NEUTRAL, createRateLimiter, redactSecrets, SETUP_TTL_SECONDS, LINK_MESSAGES,
 } from "../lib/authFlow.js";
 import { deliverInvite, deliverRecovery } from "../lib/authMailer.js";
@@ -23,38 +23,19 @@ const SECRET = "test-secret-not-real";
 const PROD = "https://research.atlasskilltech.app";
 const LOCAL = "http://localhost:3000";
 
-// ---- Fake Supabase Auth (model) ----------------------------------------------
-function fakeSupabase({ now = () => Date.now(), otpTtlMs = 3600_000, siteUrl = PROD } = {}) {
+// ---- Fake auth store (model of lib/authServer.js on MySQL) -------------------
+function fakeStore({ now = () => Date.now(), otpTtlMs = 3600_000, siteUrl = PROD } = {}) {
   const users = new Map(); // id → { id, email, confirmed, password }
   const tokens = new Map(); // tokenHash → { userId, type, exp, used }
   const outbox = [];
   let session = null;
-  const tpl = { invite: read("../supabase/templates/invite.html"), recovery: read("../supabase/templates/recovery.html") };
-  const render = (t, v) => t.replaceAll("{{ .RedirectTo }}", v.RedirectTo).replaceAll("{{ .TokenHash }}", v.TokenHash)
-    .replaceAll("{{ .SiteURL }}", v.SiteURL).replaceAll("{{ .Email }}", v.Email);
-  const issue = (user, type, redirectTo) => {
-    const hash = crypto.randomBytes(28).toString("hex"); // 56 hex chars, like Supabase
-    tokens.set(hash, { userId: user.id, type, exp: now() + otpTtlMs, used: false });
-    outbox.push({ to: user.email, type, html: render(tpl[type], { RedirectTo: redirectTo, TokenHash: hash, SiteURL: siteUrl, Email: user.email }) });
-  };
-  const err = () => ({ data: { user: null, session: null }, error: { status: 403, code: "otp_expired", message: "Email link is invalid or has expired" } });
+  void siteUrl;
+  const err =() => ({ data: { user: null, session: null }, error: { status: 403, code: "otp_expired", message: "Email link is invalid or has expired" } });
   return {
     users, tokens, outbox,
     get session() { return session; },
-    inviteUserByEmail(email, { redirectTo }) {
-      let u = [...users.values()].find((x) => x.email === email);
-      if (u?.confirmed) return { error: { status: 422, code: "email_exists", message: "already been registered" } };
-      if (!u) { u = { id: crypto.randomUUID(), email, confirmed: false, password: null }; users.set(u.id, u); }
-      issue(u, "invite", redirectTo);
-      return { error: null };
-    },
-    resetPasswordForEmail(email, { redirectTo }) {
-      const u = [...users.values()].find((x) => x.email === email);
-      if (u) issue(u, "recovery", redirectTo);
-      return { error: null };
-    },
-    // auth.admin.generateLink(): creates the user for invites, returns the
-    // hashed token, and sends NO email (application-managed delivery).
+    // generateLink() (lib/authServer.js): creates the user for invites, returns
+    // the single-use token, and sends NO email (application-managed delivery).
     generateLink({ type, email, options = {} }) {
       let u = [...users.values()].find((x) => x.email === email);
       if (type === "invite") {
@@ -65,7 +46,7 @@ function fakeSupabase({ now = () => Date.now(), otpTtlMs = 3600_000, siteUrl = P
       } else return { data: null, error: { status: 400, message: "unsupported" } };
       const hash = crypto.randomBytes(28).toString("hex");
       tokens.set(hash, { userId: u.id, type, exp: now() + otpTtlMs, used: false });
-      return { data: { user: { id: u.id }, properties: { hashed_token: hash, verification_type: type, action_link: "https://supabase.example/auth/v1/verify?…" } }, error: null };
+      return { data: { user: { id: u.id }, properties: { hashed_token: hash, verification_type: type, } }, error: null };
     },
     verifyOtp({ type, token_hash }) {
       const t = tokens.get(token_hash);
@@ -77,9 +58,11 @@ function fakeSupabase({ now = () => Date.now(), otpTtlMs = 3600_000, siteUrl = P
       return { data: { user: { id: u.id }, session: { user: { id: u.id } } }, error: null };
     },
     getUser() { return session ? { id: session.userId, email: users.get(session.userId).email } : null; },
-    updateUser({ password }) {
-      if (!session) return { error: { status: 401, message: "no session" } };
-      users.get(session.userId).password = password;
+    /** Server-side password write for a specific user (lib/authServer updatePassword). */
+    setPassword(userId, password) {
+      const u = users.get(userId);
+      if (!u) return { error: { status: 404, message: "user not found" } };
+      u.password = password;
       return { error: null };
     },
     signOut() { session = null; },
@@ -89,7 +72,7 @@ function fakeSupabase({ now = () => Date.now(), otpTtlMs = 3600_000, siteUrl = P
     },
   };
 }
-/** deps for lib/authMailer.js: fake Supabase generateLink + a mock Resend sender capturing mail. */
+/** deps for lib/authMailer.js: fake generateLink + a mock SMTP sender capturing mail. */
 const mailer = (sb, redirectBase, site = PROD, sendResult = { ok: true, id: "re_test" }) => ({
   generateLink: async (a) => sb.generateLink(a),
   sendEmail: async (m) => { sb.outbox.push({ ...m, type: m.purpose }); return typeof sendResult === "function" ? sendResult(m) : sendResult; },
@@ -100,14 +83,27 @@ const ctaUrl = (html) => {
   const m = html.match(/<a href="([^"]+)"[^>]*>(?:Create|Reset) Your Password<\/a>/);
   return m ? new URL(m[1].replaceAll("&amp;", "&")) : null;
 };
-function cookieJar() {
-  let v = null;
-  return { issue: (uid, nowMs) => { v = createSetupToken(uid, SECRET, nowMs); }, read: () => v, clear: () => { v = null; }, set: (x) => { v = x; } };
+/**
+ * Model of the server-side SETUP/RESET session (lib/auth/store.mjs): created by
+ * a verified link, bound to one user, 30-minute expiry, ended by finish().
+ */
+function setupStore(now = () => Date.now()) {
+  let s = null;
+  return {
+    issue: (userId, flow = "setup") => { s = { userId, flow: flow === "reset" ? "reset" : "setup", exp: now() + SETUP_TTL_SECONDS * 1000 }; },
+    read: () => (s && s.exp > now() ? s : null),
+    clear: () => { s = null; },
+    expireNow: () => { if (s) s.exp = now() - 1; },
+  };
 }
-const setPwDeps = (sb, jar, extra = {}) => ({
-  getUser: async () => sb.getUser(), readSetupProof: () => jar.read(), secret: SECRET,
-  updatePassword: async (p) => sb.updateUser({ password: p }), clearSetupProof: async () => jar.clear(),
-  signOut: async () => sb.signOut(), ...extra,
+const setPwDeps = (sb, store, extra = {}) => ({
+  getSetupSession: async () => {
+    const s = store.read();
+    return s ? { user: { id: s.userId, email: sb.users.get(s.userId)?.email }, flow: s.flow } : null;
+  },
+  updatePassword: async (userId, p) => sb.setPassword(userId, p),
+  finish: async () => { store.clear(); sb.signOut(); },
+  ...extra,
 });
 
 console.log("\n=== Registration & password-setup flow tests ===\n");
@@ -115,36 +111,32 @@ console.log("\n=== Registration & password-setup flow tests ===\n");
 // ---------------------------------------------------------------------------
 console.log("Root cause reproduced (old link format):");
 {
-  // What production received: Supabase's implicit-flow redirect, session in the FRAGMENT.
+  // What production once received: an implicit-flow redirect with the session in the FRAGMENT.
   const old = new URL(`${PROD}/auth/confirm?next=/create-password#access_token=eyJ.fake&refresh_token=r&type=invite`);
   check("server sees NO token_hash/code in the query → 'missing' (was: link_invalid)", parseVerificationParams(old.searchParams).reason === "missing");
   check("the fragment is never part of what the server receives", !old.search.includes("access_token") && old.hash.includes("access_token"));
-  const inviteTpl = read("../supabase/templates/invite.html");
-  check("new invite template does NOT use {{ .ConfirmationURL }}", !/ConfirmationURL/.test(inviteTpl));
-  check("new invite template links with {{ .TokenHash }} & type=invite", /\{\{ \.RedirectTo \}\}\?token_hash=\{\{ \.TokenHash \}\}&type=invite/.test(inviteTpl));
-  check("recovery template links with type=recovery", /\?token_hash=\{\{ \.TokenHash \}\}&type=recovery/.test(read("../supabase/templates/recovery.html")));
 }
 
 // ---------------------------------------------------------------------------
-console.log("\nEnd-to-end (fake Supabase): register → email → verify → create password → sign in:");
+console.log("\nEnd-to-end (fake store): register → email → verify → create password → sign in:");
 {
   let t = Date.parse("2026-11-01T10:00:00Z");
   const now = () => t;
-  const sb = fakeSupabase({ now });
-  const jar = cookieJar();
+  const sb = fakeStore({ now });
+  const jar = setupStore(now);
   const redirect = emailRedirectUrl(PROD, { production: true });
   check("production redirectTo = https://research.atlasskilltech.app/auth/confirm", redirect.ok && redirect.url === `${PROD}/auth/confirm`);
 
   const reg = await deliverInvite({ email: "new.student@atlasuniversity.edu.in", data: { name: "New Student", base_type: "STUDENT" } }, mailer(sb, redirect.url));
   const mail = sb.outbox.at(-1);
-  check("registration: account created + exactly one email handed to Resend", reg.ok && reg.emailSent && sb.users.size === 1 && sb.outbox.length === 1 && mail.type === "invite");
+  check("registration: account created + exactly one email handed to the mailer", reg.ok && reg.emailSent && sb.users.size === 1 && sb.outbox.length === 1 && mail.type === "invite");
   check("email has subject + plain-text alternative", mail.subject === "Complete Your Research Portal Registration" && mail.text.includes("/auth/confirm?token_hash="));
-  check("Resend idempotency key derived from user + token (safe retries)", /^invite\/[a-f0-9]{40}$/.test(mail.key));
+  check("Mailer idempotency key derived from user + token (safe retries)", /^invite\/[a-f0-9]{40}$/.test(mail.key));
   check("email has subject-style heading + CTA", /Welcome to the Research Publication Portal/.test(mail.html) && /Create Your Password/.test(mail.html));
   const link = ctaUrl(mail.html);
   check("CTA points to production /auth/confirm", link && link.origin === PROD && link.pathname === "/auth/confirm", link?.origin + link?.pathname);
   check("CTA carries token_hash + type=invite + flow=setup (nothing else)", link && [...link.searchParams.keys()].join() === "token_hash,type,flow" && link.searchParams.get("type") === "invite" && link.searchParams.get("flow") === "setup");
-  check("CTA token is the Supabase-generated hashed_token (we mint none)", link && sb.tokens.has(link.searchParams.get("token_hash")));
+  check("CTA token is the one generateLink issued", link && sb.tokens.has(link.searchParams.get("token_hash")));
   check("plain-text fallback link present in the email", (mail.html.match(/token_hash=/g) || []).length >= 3);
   check("email never contains a password", !/password:\s*\S|your password is/i.test(mail.html));
 
@@ -154,13 +146,13 @@ console.log("\nEnd-to-end (fake Supabase): register → email → verify → cre
   let verifyCalls = 0;
   const deps = {
     verifyOtp: async (a) => { verifyCalls++; return sb.verifyOtp(a); },
-    issueSetupProof: async (uid) => jar.issue(uid, now()),
+    issueSetupProof: async (uid, flow) => jar.issue(uid, flow),
   };
   const v1 = await verifyLink(link.searchParams, deps);
   check("verification succeeds → fixed redirect to /create-password", v1.ok && v1.redirect === AFTER_VERIFY_PATH && AFTER_VERIFY_PATH === "/create-password");
   check("verifyOtp called exactly once", verifyCalls === 1);
-  check("user is now verified + has a session", [...sb.users.values()][0].confirmed && !!sb.session);
-  check("setup proof issued for that user", verifySetupToken(jar.read(), sb.session.userId, SECRET, now()));
+  check("user is now verified", [...sb.users.values()][0].confirmed);
+  check("SETUP session issued for that user (flow setup)", jar.read()?.userId === [...sb.users.values()][0].id && jar.read()?.flow === "setup");
 
   const mismatch = await setPassword({ password: "Research#2026ok", confirm: "Research#2026no" }, setPwDeps(sb, jar));
   check("password/confirm mismatch → 422, nothing changed", mismatch.status === 422 && [...sb.users.values()][0].password === null);
@@ -169,7 +161,7 @@ console.log("\nEnd-to-end (fake Supabase): register → email → verify → cre
 
   const ok = await setPassword({ password: "Research#2026ok", confirm: "Research#2026ok" }, setPwDeps(sb, jar));
   check("password set → 200", ok.status === 200 && ok.body.ok === true);
-  check("setup proof cleared + signed out afterwards", jar.read() === null && sb.session === null);
+  check("setup session ended + signed out afterwards", jar.read() === null && sb.session === null);
   check("user signs in with email + new password", sb.signInWithPassword("new.student@atlasuniversity.edu.in", "Research#2026ok"));
   check("wrong password still rejected", !sb.signInWithPassword("new.student@atlasuniversity.edu.in", "nope-nope-nope"));
 
@@ -189,11 +181,11 @@ console.log("\nCallback parameter handling:");
 {
   const deps = { verifyOtp: async () => { throw new Error("must not be called"); }, issueSetupProof: async () => {} };
   const hash = "a".repeat(56);
-  check("missing token_hash → missing (no Supabase call)", (await verifyLink({ type: "invite" }, deps)).reason === "missing");
+  check("missing token_hash → missing (no database call)", (await verifyLink({ type: "invite" }, deps)).reason === "missing");
   check("missing type → missing", (await verifyLink({ token_hash: hash }, deps)).reason === "missing");
   check("non-hex token → malformed", (await verifyLink({ token_hash: "<script>", type: "invite" }, deps)).reason === "malformed");
   check("unknown type → malformed", (await verifyLink({ token_hash: hash, type: "magic_admin" }, deps)).reason === "malformed");
-  check("invalid (unknown) token from Supabase → expired/invalid, no proof", (await verifyLink({ token_hash: hash, type: "invite" }, {
+  check("invalid (unknown) token from the store → expired/invalid, no proof", (await verifyLink({ token_hash: hash, type: "invite" }, {
     verifyOtp: async () => ({ error: { status: 403, code: "otp_expired" } }), issueSetupProof: async () => { throw new Error("no proof on failure"); },
   })).reason === "expired");
   check("other 4xx → invalid", classifyVerifyError({ status: 400, code: "validation_failed" }) === "invalid");
@@ -208,43 +200,40 @@ console.log("\nCallback parameter handling:");
 // ---------------------------------------------------------------------------
 console.log("\nUnauthorized password updates:");
 {
-  const sb = fakeSupabase();
-  const jar = cookieJar();
+  const sb = fakeStore();
+  const jar = setupStore();
   const body = { password: "Research#2026ok", confirm: "Research#2026ok" };
   const r1 = await setPassword(body, setPwDeps(sb, jar));
-  check("no session → 401 setup_required", r1.status === 401 && r1.body.code === "setup_required");
+  check("no setup session → 401 setup_required", r1.status === 401 && r1.body.code === "setup_required");
 
   await deliverInvite({ email: "a@atlasuniversity.edu.in" }, mailer(sb, `${PROD}/auth/confirm`));
   await deliverInvite({ email: "b@atlasuniversity.edu.in" }, mailer(sb, `${PROD}/auth/confirm`));
   const [linkA] = sb.outbox.map((m) => ctaUrl(m.html));
-  await verifyLink(linkA.searchParams, { verifyOtp: async (a) => sb.verifyOtp(a), issueSetupProof: async () => {} }); // session, but NO proof cookie
+  // Verified link, but the setup session was never issued (e.g. a normal APP session).
+  await verifyLink(linkA.searchParams, { verifyOtp: async (a) => sb.verifyOtp(a), issueSetupProof: async () => {} });
   const r2 = await setPassword(body, setPwDeps(sb, jar));
-  check("ordinary session without setup proof → 403 (can't change password here)", r2.status === 403);
-
-  const userB = [...sb.users.values()].find((u) => u.email.startsWith("b@"));
-  jar.set(createSetupToken(userB.id, SECRET));
-  check("setup proof for ANOTHER user → 403", (await setPassword(body, setPwDeps(sb, jar))).status === 403);
+  check("ordinary session without a SETUP session → 401 (can't change password here)", r2.status === 401);
 
   const userA = [...sb.users.values()].find((u) => u.email.startsWith("a@"));
-  const good = createSetupToken(userA.id, SECRET);
-  jar.set(good.slice(0, -2) + (good.endsWith("AA") ? "BB" : "AA"));
-  check("tampered setup proof → 403", (await setPassword(body, setPwDeps(sb, jar))).status === 403);
-  jar.set(createSetupToken(userA.id, SECRET, Date.now() - (SETUP_TTL_SECONDS + 5) * 1000));
-  check("expired setup proof (30 min) → 403", (await setPassword(body, setPwDeps(sb, jar))).status === 403);
-  jar.set(createSetupToken(userA.id, "other-secret"));
-  check("proof signed with another secret → 403", (await setPassword(body, setPwDeps(sb, jar))).status === 403);
+  jar.issue(userA.id, "setup");
+  jar.expireNow();
+  check("expired setup session (30 min) → 401", (await setPassword(body, setPwDeps(sb, jar))).status === 401);
   check("no password was changed by any of the above", [...sb.users.values()].every((u) => u.password === null));
 
-  jar.set(createSetupToken(userA.id, SECRET));
+  jar.issue(userA.id, "setup");
   const weak = await setPassword(body, setPwDeps(sb, jar, { updatePassword: async () => ({ error: { status: 422, code: "weak_password", message: "Password is too weak" } }) }));
-  check("Supabase rejects password → 422 with guidance, proof kept for retry", weak.status === 422 && /stronger/.test(weak.body.error) && jar.read() !== null);
+  check("password rejected → 422 with guidance, setup session kept for retry", weak.status === 422 && /stronger/.test(weak.body.error) && jar.read() !== null);
   const down = await setPassword(body, setPwDeps(sb, jar, { updatePassword: async () => ({ error: { status: 500 } }) }));
-  check("password update failure (5xx) → 500, session kept", down.status === 500 && sb.session !== null);
+  check("password update failure (5xx) → 500, setup session kept", down.status === 500 && jar.read() !== null);
+  const okA = await setPassword(body, setPwDeps(sb, jar));
+  check("the password is written for the SETUP-session user only", okA.status === 200 && userA.password === body.password && [...sb.users.values()].filter((u) => u.password).length === 1);
 
   const route = read("../app/api/set-password/route.js");
   check("set-password route never takes a user id from the request", !/body\??\.(user_?id|id|email)/i.test(route));
-  check("set-password uses getUser() (server-validated), not getSession()", /auth\.getUser\(\)/.test(route) && !/getSession\(/.test(route));
-  check("create-password page requires session + setup proof", /verifySetupToken\(proof, user\.id/.test(read("../app/create-password/page.js")));
+  check("set-password uses the server-side setup session deps", /setPasswordDeps/.test(route));
+  check("setup session is a SETUP/RESET purpose only (never APP)", /currentSession\(\["SETUP", "RESET"\]\)/.test(read("../lib/session.js")));
+  check("create-password page requires the SETUP session (flow setup)", /getSetupSession\(\)/.test(read("../app/create-password/page.js")) && /setup\.flow !== "setup"/.test(read("../app/create-password/page.js")));
+  check("password change revokes every session of the user", /finish: \(userId\) => endAllSessions\(userId\)/.test(read("../lib/authServer.js")));
 }
 
 // ---------------------------------------------------------------------------
@@ -293,8 +282,8 @@ console.log("\nResend setup email & existing accounts:");
   t += 60 * 60_000 + 1;
   check("limits reset after the window", (await resendSetupEmail({ email: "pending@atlasuniversity.edu.in", ip: "9.9.9.9" }, ld)).status === 200);
 
-  // Re-registering an existing verified account doesn't duplicate it (fake mirrors Supabase).
-  const sb = fakeSupabase();
+  // Re-registering an existing verified account doesn't duplicate it (fake mirrors the store).
+  const sb = fakeStore();
   await deliverInvite({ email: "dup@atlasuniversity.edu.in" }, mailer(sb, `${PROD}/auth/confirm`));
   await verifyLink(ctaUrl(sb.outbox[0].html).searchParams, { verifyOtp: async (a) => sb.verifyOtp(a), issueSetupProof: async () => {} });
   const dup = await deliverInvite({ email: "dup@atlasuniversity.edu.in" }, mailer(sb, `${PROD}/auth/confirm`));
@@ -313,17 +302,17 @@ console.log("\nEnvironment-specific redirect URLs:");
   check("production + localhost → refused", !emailRedirectUrl("http://localhost:5630", { production: true }).ok);
   check("production + plain http → refused", !emailRedirectUrl("http://research.atlasskilltech.app", { production: true }).ok);
   check("garbage URL → refused", !emailRedirectUrl("research.atlasskilltech.app").ok && !emailRedirectUrl("javascript:alert(1)").ok);
-  const sbLocal = fakeSupabase({ siteUrl: PROD });
+  const sbLocal = fakeStore({ siteUrl: PROD });
   await deliverInvite({ email: "dev@atlasuniversity.edu.in" }, mailer(sbLocal, emailRedirectUrl(LOCAL).url, LOCAL));
   const localLink = ctaUrl(sbLocal.outbox[0].html);
   check("local registration email links to localhost (not production)", localLink.origin === LOCAL);
-  const sbProd = fakeSupabase();
+  const sbProd = fakeStore();
   await deliverInvite({ email: "p@atlasuniversity.edu.in" }, mailer(sbProd, emailRedirectUrl(PROD, { production: true }).url));
   check("production email contains no localhost link", !/localhost|127\.0\.0\.1/.test(sbProd.outbox[0].html));
   const authServer = read("../lib/authServer.js");
   check("server refuses the accidental localhost fallback in production", /production: process\.env\.NODE_ENV === "production" && !process\.env\.NEXT_PUBLIC_SITE_URL/.test(authServer));
   check("all auth emails share one redirect helper (mailerDeps → authEmailRedirect)", /redirectBase: authEmailRedirect\(\)/.test(authServer) && /registerAndInvite\(/.test(read("../app/api/register/route.js")));
-  check("no Supabase-sent auth emails remain (single sender: Resend)", !/inviteUserByEmail|resetPasswordForEmail/.test(authServer + read("../app/api/register/route.js")));
+  check("auth emails have a single sender (the app's SMTP mailer)", !/inviteUserByEmail|resetPasswordForEmail|supabase/i.test(authServer + read("../app/api/register/route.js")));
 }
 
 // ---------------------------------------------------------------------------
@@ -348,28 +337,29 @@ console.log("\nNo sensitive token leakage:");
     const logs = src.match(/console\.(log|error|warn|info)\([^)]*\)/g) || [];
     check(`${f.replace("../", "")}: no logging of tokens/passwords/emails`, logs.every((l) => !/token|password|email|hash|body|formData|proof/i.test(l.replace(/"[^"]*"/g, ""))), logs.join(" | ") || "no logs");
   }
-  check("templates contain no hard-coded token values", !/token_hash=[a-f0-9]{20,}/i.test(read("../supabase/templates/invite.html") + read("../supabase/templates/recovery.html")));
-  check("setup proof cookie is httpOnly + sameSite", /httpOnly: true/.test(read("../lib/authServer.js")) && /sameSite: "lax"/.test(read("../lib/authServer.js")));
+  check("email templates contain no hard-coded token values", !/token_hash=[a-f0-9]{20,}/i.test(read("../lib/email/templates.js")));
+  check("session cookie is httpOnly + sameSite=lax + secure in production", /httpOnly: true/.test(read("../lib/auth/session.js")) && /sameSite: "lax"/.test(read("../lib/auth/session.js")) && /secure: secure\(\)/.test(read("../lib/auth/session.js")));
+  check("only the SHA-256 of tokens is stored", /sha256Hex\(token\)/.test(read("../lib/auth/store.mjs")) && /sha256Hex\(raw\)/.test(read("../lib/auth/store.mjs")));
   {
     const scrub = read("../components/auth/FragmentScrubber.jsx");
     check("old fragments are scrubbed from the address bar (tokens never used)",
       /replaceState/.test(scrub) && !/setSession|exchangeCodeForSession|new URLSearchParams\(\s*window\.location\.hash/.test(scrub) && !/@\/lib\/supabase/.test(scrub));
   }
-  check("no service-role import in client components", !/supabase\/admin|SUPABASE_SECRET/.test(read("../components/auth/CreatePasswordForm.jsx") + read("../components/auth/ResendSetupForm.jsx") + read("../components/auth/FragmentScrubber.jsx")));
+  check("no server/db import in client components", !/@\/lib\/db|@\/lib\/auth\/|mysql2|server-only/.test(read("../components/auth/CreatePasswordForm.jsx") + read("../components/auth/ResendSetupForm.jsx") + read("../components/auth/FragmentScrubber.jsx")));
   check("client form imports the crypto-free policy module only", /@\/lib\/passwordPolicy/.test(read("../components/auth/CreatePasswordForm.jsx")) && !/@\/lib\/authFlow/.test(read("../components/auth/CreatePasswordForm.jsx")));
 }
 
 // ---------------------------------------------------------------------------
-console.log("\nPassword recovery end-to-end (fake Supabase + real mailer/templates):");
+console.log("\nPassword recovery end-to-end (fake store + real mailer/templates):");
 {
   let t = Date.parse("2026-11-01T12:00:00Z");
   const now = () => t;
-  const sb = fakeSupabase({ now });
+  const sb = fakeStore({ now });
   const base = `${PROD}/auth/confirm`;
-  const jar = cookieJar();
+  const jar = setupStore(now);
   // An existing, verified user with a password.
   await deliverInvite({ email: "reset.me@atlasuniversity.edu.in" }, mailer(sb, base));
-  await verifyLink(ctaUrl(sb.outbox.at(-1).html).searchParams, { verifyOtp: async (a) => sb.verifyOtp(a), issueSetupProof: async (uid, flow) => { jar.issue(uid, now()); jar.set(createSetupToken(uid, SECRET, now(), SETUP_TTL_SECONDS, flow)); } });
+  await verifyLink(ctaUrl(sb.outbox.at(-1).html).searchParams, { verifyOtp: async (a) => sb.verifyOtp(a), issueSetupProof: async (uid, flow) => jar.issue(uid, flow) });
   await setPassword({ password: "Original#Pass2026", confirm: "Original#Pass2026" }, setPwDeps(sb, jar));
   check("precondition: user signs in with original password", sb.signInWithPassword("reset.me@atlasuniversity.edu.in", "Original#Pass2026"));
 
@@ -388,7 +378,7 @@ console.log("\nPassword recovery end-to-end (fake Supabase + real mailer/templat
   check("reset link: type=recovery + flow=reset → our /auth/confirm", link.pathname === "/auth/confirm" && link.searchParams.get("type") === "recovery" && link.searchParams.get("flow") === "reset");
 
   let flowSeen = null;
-  const v = await verifyLink(link.searchParams, { verifyOtp: async (a) => sb.verifyOtp(a), issueSetupProof: async (uid, flow) => { flowSeen = flow; jar.set(createSetupToken(uid, SECRET, now(), SETUP_TTL_SECONDS, flow)); } });
+  const v = await verifyLink(link.searchParams, { verifyOtp: async (a) => sb.verifyOtp(a), issueSetupProof: async (uid, flow) => { flowSeen = flow; jar.issue(uid, flow); } });
   check("verified → dedicated /reset-password page (not create-password)", v.ok && v.redirect === "/reset-password" && flowSeen === "reset");
 
   const notified = [];
@@ -403,7 +393,7 @@ console.log("\nPassword recovery end-to-end (fake Supabase + real mailer/templat
     // Fresh recovery session + proof, then the confirmation email THROWS.
     const g = sb.generateLink({ type: "recovery", email: "reset.me@atlasuniversity.edu.in" });
     sb.verifyOtp({ type: "recovery", token_hash: g.data.properties.hashed_token });
-    jar.set(createSetupToken(sb.session.userId, SECRET, now(), SETUP_TTL_SECONDS, "reset"));
+    jar.issue(g.data.user.id, "reset");
     const notifyFail = await setPassword({ password: "Third#Pass20266", confirm: "Third#Pass20266" }, setPwDeps(sb, jar, { notifyPasswordChanged: async () => { throw new Error("resend down"); } }));
     check("confirmation-email failure never fails the password change (200, password updated)", notifyFail.status === 200 && sb.signInWithPassword("reset.me@atlasuniversity.edu.in", "Third#Pass20266"));
   }
@@ -414,7 +404,7 @@ console.log("\nPassword recovery end-to-end (fake Supabase + real mailer/templat
   });
   check("forgot password for unknown address → same neutral message, nothing sent", unknown.body.message === forgot.body.message);
   check("flow param can only pick a fixed page (unknown flow → default)", parseVerificationParams({ token_hash: "a".repeat(56), type: "recovery", flow: "https://evil.example" }).flow === "reset");
-  check("reset page requires session + setup proof", /verifySetupToken\(proof, user\.id/.test(read("../app/reset-password/page.js")));
+  check("reset page requires the RESET session (flow reset)", /getSetupSession\(\)/.test(read("../app/reset-password/page.js")) && /setup\.flow !== "reset"/.test(read("../app/reset-password/page.js")));
   check("forgot-password route uses purpose 'reset' and the shared limiter", /purpose: "reset"/.test(read("../app/api/auth/forgot-password/route.js")) && /rateLimit: resendRateLimit/.test(read("../app/api/auth/forgot-password/route.js")));
 }
 

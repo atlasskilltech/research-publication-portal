@@ -7,7 +7,8 @@
 // (Accept/reject decisions are NOT implemented here — a later phase.)
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T } from "@/lib/db";
+import { usersByIds } from "@/lib/repos/users.mjs";
 import { reviewForEditor, REVIEWER_ROLES, deadlineState, summarizeReviews } from "@/lib/reviewLogic";
 import { loadPaperContext } from "@/lib/paperAccess";
 
@@ -22,21 +23,17 @@ export async function GET(_request, { params }) {
   const { id } = await params;
 
   try {
-    const admin = createAdminClient();
-    const ctx = await loadPaperContext(admin, id, me);
+    const ctx = await loadPaperContext(db, id, me);
     if (!ctx) return NextResponse.json({ error: "Not found." }, { status: 404 });
     if (!ctx.canManage) return NextResponse.json({ error: "Administrator or editor access is required." }, { status: 403 });
     const round = ctx.paper.current_round ?? 0;
 
     const assigns = ctx.assignments.filter((a) => REVIEWER_ROLES.includes(a.role)); // SPOC/EDITOR don't review
-    const { data: reviews } = await admin.from("reviews").select(COLS).eq("paper_id", id).order("round", { ascending: true });
+    const reviews = await db.query(`SELECT ${COLS} FROM \`${T.reviews}\` WHERE paper_id = ? ORDER BY round ASC`, [id]);
 
     const reviewerIds = [...new Set([...assigns.map((a) => a.assignee), ...(reviews || []).map((r) => r.reviewer)])];
     const nameById = new Map();
-    if (reviewerIds.length) {
-      const { data: profs } = await admin.from("profiles").select("id, name, email").in("id", reviewerIds);
-      (profs || []).forEach((p) => nameById.set(p.id, { name: p.name, email: p.email }));
-    }
+    (await usersByIds(db, reviewerIds)).forEach((p) => nameById.set(p.id, { name: p.name, email: p.email }));
 
     const currentByReviewer = new Map((reviews || []).filter((r) => r.round === round).map((r) => [r.reviewer, r]));
     const now = new Date();
@@ -78,7 +75,7 @@ export async function GET(_request, { params }) {
       history,
     });
   } catch (e) {
-    console.error("papers/[id]/reviews GET:", e?.message);
+    console.error("papers/[id]/reviews GET:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not load reviews." }, { status: 500 });
   }
 }

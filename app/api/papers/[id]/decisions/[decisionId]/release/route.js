@@ -1,12 +1,11 @@
 // Communicate a saved decision to the author (admin / paper EDITOR).
 //   POST { expectedVersion }
-// Applies the effect atomically in release_editorial_decision() (0008):
+// Applies the effect atomically in releaseEditorialDecision (one MySQL transaction):
 // ACCEPT → ACCEPTED, REJECT → REJECTED, MINOR/MAJOR → Phase 3 revision request.
 // Once communicated, the decision is immutable. A stale expectedVersion (someone
 // else edited the draft) or a second/concurrent release returns 409.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { releaseDecision } from "@/lib/decisionService";
 
 export const runtime = "nodejs";
@@ -25,8 +24,7 @@ export async function POST(request, { params }) {
   }
 
   try {
-    const admin = createAdminClient();
-    const r = await releaseDecision(admin, id, me, decisionId, expectedVersion);
+    const r = await releaseDecision(id, me, decisionId, expectedVersion);
     return NextResponse.json(r.body, { status: r.status });
   } catch (e) {
     console.error("decision release:", e?.message);

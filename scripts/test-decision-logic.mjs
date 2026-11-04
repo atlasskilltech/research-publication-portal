@@ -1,8 +1,10 @@
 /**
  * No-DB unit tests for Phase 4 editorial decisions (lib/decisionLogic.js) plus
- * STATIC checks of supabase/migrations/0008_editorial_decisions.sql and the
- * route sources. The SQL is read as text — the functions are NOT executed
- * against a database here. Run: node scripts/test-decision-logic.mjs
+ * STATIC checks of the MySQL workflow service (lib/services/workflow.mjs),
+ * the schema migration (database/migrations/002_workflow.mjs) and the route
+ * sources. Sources are read as text — nothing is executed against a database
+ * here (scripts/test-mysql-integration.mjs runs them against MySQL).
+ * Run: node scripts/test-decision-logic.mjs
  */
 import { readFileSync } from "node:fs";
 import {
@@ -14,13 +16,19 @@ import { canRequestRevision, canAuthorEdit, mapRpcError, RS } from "../lib/revis
 let failures = 0;
 const check = (l, ok, d = "") => { console.log(`  ${ok ? "✓" : "✗"} ${l}${d ? " — " + d : ""}`); if (!ok) failures++; };
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
-const sql = read("../supabase/migrations/0008_editorial_decisions.sql");
+const wf = read("../lib/services/workflow.mjs");
+const ddl = read("../database/migrations/002_workflow.mjs");
+/** Body of a top-level function in workflow.mjs (from its declaration to the closing "\n}\n"). */
 const fnBody = (name) => {
-  const m = sql.match(new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\$\\$([\\s\\S]*?)\\$\\$;`));
-  return m ? m[1] : "";
+  const i = wf.search(new RegExp(`(?:^|\\n)(?:export )?(?:async )?function ${name}\\(`));
+  if (i < 0) return "";
+  const end = wf.indexOf("\n}\n", i + 1);
+  return end < 0 ? "" : wf.slice(i, end + 2);
 };
-const save = fnBody("save_editorial_decision");
-const release = fnBody("release_editorial_decision");
+const save = fnBody("saveEditorialDecision");
+const release = fnBody("releaseEditorialDecision");
+const lockPaperBody = fnBody("lockPaper");
+const isManagerBody = fnBody("isManager");
 
 const U = (n) => `00000000-0000-4000-8000-00000000000${n}`;
 const NOW = new Date("2026-11-01T12:00:00Z");
@@ -33,8 +41,8 @@ const reviews = [
 
 console.log("\n=== Phase 4 editorial decision unit tests ===\n");
 
-console.log("Migration parse guard:");
-check("save/release function bodies found (no vacuous SQL checks)", save.length > 500 && release.length > 500);
+console.log("Source parse guard:");
+check("save/release function bodies found (no vacuous checks)", save.length > 500 && release.length > 500 && lockPaperBody.length > 0 && isManagerBody.length > 0);
 
 console.log("\nDecision authorization:");
 check("admin may decide", canDecide({ id: "a", isAdmin: true }, []));
@@ -44,16 +52,31 @@ check("DESK_REVIEWER may NOT decide", !canDecide({ id: "r" }, [{ assignee: "r", 
 check("SPOC may NOT decide", !canDecide({ id: "s" }, [{ assignee: "s", role: "SPOC" }]));
 check("author may NOT decide", !canDecide({ id: "author" }, []));
 check("editor of a different paper may NOT decide", !canDecide({ id: "e2" }, [{ assignee: "e", role: "EDITOR" }]));
-check("SQL save re-checks manager", /_rpp_is_manager\(p_paper, p_actor\)/.test(save) && /FORBIDDEN/.test(save));
-check("SQL release re-checks manager", /_rpp_is_manager\(p_paper, p_actor\)/.test(release) && /FORBIDDEN/.test(release));
-check("functions not callable by anon/authenticated",
-  /revoke all on function public\.save_editorial_decision\([^)]*\) from public, anon, authenticated/.test(sql) &&
-  /revoke all on function public\.release_editorial_decision\([^)]*\) from public, anon, authenticated/.test(sql));
-check("decisions table: no author RLS branch (confidential column)", /create policy editorial_decisions_select[\s\S]*?using \(\s*public\.current_user_is_admin\(\) or public\.current_user_is_paper_editor\(paper_id\)\s*\);/.test(sql));
+check("service save re-checks manager", /isManager\(tx, paperId, actorId\)/.test(save) && /fail\("FORBIDDEN"\)/.test(save));
+check("service release re-checks manager", /isManager\(tx, paperId, actorId\)/.test(release) && /fail\("FORBIDDEN"\)/.test(release));
+check("manager = administrator or the paper's EDITOR", /isAdmin/.test(isManagerBody) && /role = 'EDITOR'/.test(isManagerBody));
+// (Postgres REVOKE … FROM anon/authenticated has no MySQL counterpart: the database is
+// never exposed to browsers. Equivalent guard: the service is only imported server-side.)
+{
+  const { readdirSync, statSync } = await import("node:fs");
+  const walk = (dir) => readdirSync(new URL(dir, import.meta.url)).flatMap((f) => {
+    const rel = `${dir}${f}`;
+    return statSync(new URL(rel, import.meta.url)).isDirectory() ? walk(`${rel}/`) : /\.(js|jsx|mjs)$/.test(f) ? [rel] : [];
+  });
+  const files = [...walk("../app/"), ...walk("../components/")];
+  const leaks = files.filter((f) => { const s = read(f); return /^\s*["']use client["']/.test(s) && /lib\/services|@\/lib\/db|decisionService/.test(s); });
+  check("workflow service / db never imported by a 'use client' module", leaks.length === 0, leaks.join(", "));
+}
+{
+  const decRoute = read("../app/api/papers/[id]/decisions/route.js");
+  check("decisions reach authors only via decisionForAuthor (confidential note stripped)", /decisionForAuthor/.test(decRoute) && /decisionForManager/.test(decRoute));
+  const a = decisionForAuthor({ id: "d", round: 0, decision: "ACCEPT", summary: "s", confidential_note: "secret", released_at: "t", decided_by: "e" });
+  check("decisionForAuthor drops confidential_note + decided_by", a && !JSON.stringify(a).includes("secret") && !("decided_by" in a));
+}
 
 console.log("\nReviewer recommendations never become decisions:");
 check("no code path reads review.recommendation when saving", !/recommendation/.test(save) && !/recommendation/.test(release));
-check("decision value comes only from the manager's input", /p_decision/.test(save));
+check("decision value comes only from the manager's input", /\{ paperId, actorId, decision, summary, note, reviewIds, dueAt \}/.test(save));
 
 console.log("\nValidation:");
 const good = { decision: "accept", summary: "Well done.", reviewIds: [] };
@@ -81,31 +104,34 @@ check("unreleased draft this round → still eligible (it gets updated)", elig({
 check("DRAFT review cannot be released", !elig({ reviewIds: [U(2)] }).ok);
 check("other-round review cannot be released", !elig({ reviewIds: [U(3)] }).ok);
 check("round 1 decision after re-review uses round-1 reviews", elig({ paper: { ...paper, current_round: 1 }, decisions: [{ round: 0, released_at: "t" }], reviewIds: [U(3)] }).ok);
-check("SQL save requires UNDER_REVIEW + submitted review", /NOT_UNDER_REVIEW/.test(save) && /NO_SUBMITTED_REVIEWS/.test(save));
-check("SQL release requires UNDER_REVIEW and the current round", /v_paper\.status <> 'UNDER_REVIEW' or v_dec\.round <> v_paper\.current_round/.test(release));
+check("service save requires UNDER_REVIEW + submitted review", /NOT_UNDER_REVIEW/.test(save) && /NO_SUBMITTED_REVIEWS/.test(save));
+check("service release requires UNDER_REVIEW and the current round", /paper\.status !== "UNDER_REVIEW" \|\| dec\.round !== paper\.current_round/.test(release));
 check("effects: ACCEPT→ACCEPTED, REJECT→REJECTED, revisions→REVISION",
   DECISION_EFFECT.ACCEPT.paperStatus === "ACCEPTED" && DECISION_EFFECT.REJECT.paperStatus === "REJECTED" &&
   DECISION_EFFECT.MINOR_REVISION.paperStatus === "REVISION" && DECISION_EFFECT.MAJOR_REVISION.revisionType === "MAJOR");
-check("SQL ACCEPT sets ACCEPTED", /'ACCEPT' then\s+update public\.papers set status = 'ACCEPTED'/.test(release));
-check("SQL REJECT sets REJECTED", /'REJECT' then\s+update public\.papers set status = 'REJECTED'/.test(release));
+check("service ACCEPT sets ACCEPTED", /dec\.decision === "ACCEPT"\) \{\s+await tx\.exec\(`UPDATE \\`\$\{T\.papers\}\\` SET status = 'ACCEPTED'/.test(release));
+check("service REJECT sets REJECTED", /dec\.decision === "REJECT"\) \{\s+await tx\.exec\(`UPDATE \\`\$\{T\.papers\}\\` SET status = 'REJECTED'/.test(release));
 
 console.log("\nDecision history preservation:");
-check("one decision per (paper, round)", /unique \(paper_id, round\)/.test(sql));
-check("immutability trigger on update AND delete", /before update or delete on public\.editorial_decisions/.test(sql));
-check("trigger rejects changes to communicated decisions", /old\.released_at is not null then\s+raise exception 'RPP:DECISION_FINAL'/.test(fnBody("_rpp_decision_immutable")));
-check("save refuses to touch a communicated decision", /released_at is not null then raise exception 'RPP:DECISION_EXISTS'/.test(save));
-check("no DELETE of decisions in 0008", !/delete\s+from\s+public\.editorial_decisions/i.test(sql));
+const decDdl = ddl.slice(ddl.indexOf("T.editorialDecisions, `"), ddl.indexOf("`);", ddl.indexOf("T.editorialDecisions, `")));
+check("one decision per (paper, round)", /UNIQUE KEY \\`research_editorial_decisions_round_uq\\` \(\\`paper_id\\`, \\`round\\`\)/.test(decDdl));
+const decUpdates = wf.match(/UPDATE \\`\$\{T\.editorialDecisions\}\\`[\s\S]*?`/g) || [];
+check("every decision UPDATE is guarded by released_at IS NULL (immutability)", decUpdates.length >= 2 && decUpdates.every((u) => /released_at IS NULL/.test(u)), `${decUpdates.length} updates`);
+check("a guarded UPDATE that hits a communicated decision raises DECISION_FINAL / DECISION_EXISTS",
+  /affectedRows !== 1\) throw fail\("DECISION_FINAL"\)/.test(save) && /affectedRows !== 1\) throw fail\("DECISION_EXISTS"\)/.test(release));
+check("save refuses to touch a communicated decision", /if \(existing\.released_at\) throw fail\("DECISION_EXISTS"\)/.test(save));
+check("no DELETE of decisions anywhere in the service", !/DELETE\s+FROM\s+\\`\$\{T\.editorialDecisions\}/i.test(wf));
 check("isEditable: draft yes, communicated no", isEditable({ released_at: null }) && !isEditable({ released_at: "t" }));
-check("draft edits are logged (DECISION_UPDATED with version)", /'DECISION_UPDATED'[\s\S]*'version'/.test(save));
-check("communication logged (DECISION_COMMUNICATED)", /'DECISION_COMMUNICATED'/.test(release));
-check("decision maker + timestamp recorded", /decided_by = p_actor/.test(save) && /released_at = now\(\), released_by = p_actor/.test(release));
+check("draft edits are logged (DECISION_UPDATED with version)", /"DECISION_UPDATED", \{[^}]*version/.test(save));
+check("communication logged (DECISION_COMMUNICATED)", /"DECISION_COMMUNICATED"/.test(release));
+check("decision maker + timestamp recorded", /decided_by = \?/.test(save) && /released_at = UTC_TIMESTAMP\(3\), released_by = \?/.test(release));
 
 console.log("\nRevision integration (reuses Phase 3, no duplicates):");
-check("release calls request_paper_revision for MINOR/MAJOR", /public\.request_paper_revision\(/.test(release));
-check("maps MINOR_REVISION→'MINOR', else 'MAJOR'", /when 'MINOR_REVISION' then 'MINOR' else 'MAJOR'/.test(release));
-check("0008 never inserts paper_revisions directly", !/insert into public\.paper_revisions/i.test(sql));
-check("decision links the created revision (revision_id)", /revision_id = v_rev/.test(release));
-check("decision summary becomes the revision instructions", /v_dec\.summary, v_dec\.revision_due_at, v_dec\.review_ids/.test(release));
+check("release calls requestRevisionTx for MINOR/MAJOR (same transaction)", /requestRevisionTx\(tx, \{/.test(release));
+check("maps MINOR_REVISION→'MINOR', else 'MAJOR'", /dec\.decision === "MINOR_REVISION" \? "MINOR" : "MAJOR"/.test(release));
+check("decision functions never insert paper_revisions directly", !/INSERT INTO \\`\$\{T\.paperRevisions\}/.test(save + release));
+check("decision links the created revision (revision_id)", /revision_id = \?/.test(release) && /\[actorId, revisionId, dec\.id\]/.test(release));
+check("decision summary becomes the revision instructions", /instructions: dec\.summary, dueAt: dec\.revision_due_at, reviewIds: dec\.review_ids/.test(release));
 {
   const wrapper = read("../app/api/papers/[id]/revisions/route.js");
   check("Phase 3 POST /revisions now goes through the decision service", /saveDecision\(/.test(wrapper) && /releaseDecision\(/.test(wrapper));
@@ -125,11 +151,12 @@ check("accept next action mentions publication", /publication/.test(nextActionFo
 }
 
 console.log("\nConcurrent decision protection:");
-check("save locks the paper row FOR UPDATE", /from public\.papers where id = p_paper for update/.test(save));
-check("save locks the existing decision FOR UPDATE", /from public\.editorial_decisions[\s\S]*?for update/.test(save));
-check("release locks paper + decision FOR UPDATE", (release.match(/for update/g) || []).length >= 2);
+check("paper lock helper uses SELECT … FOR UPDATE", /FROM \\`\$\{T\.papers\}\\` WHERE id = \? FOR UPDATE/.test(lockPaperBody));
+check("save locks the paper row FOR UPDATE", /await lockPaper\(tx, paperId\)/.test(save));
+check("save locks the existing decision FOR UPDATE", /FROM \\`\$\{T\.editorialDecisions\}\\` WHERE paper_id = \? AND round = \? FOR UPDATE/.test(save));
+check("release locks paper + decision FOR UPDATE", /await lockPaper\(tx, paperId\)/.test(release) && /FROM \\`\$\{T\.editorialDecisions\}\\` WHERE id = \? AND paper_id = \? FOR UPDATE/.test(release));
 check("each draft save bumps version", /version = version \+ 1/.test(save));
-check("release requires the expected version (STALE otherwise)", /v_dec\.version <> p_expected_version then raise exception 'RPP:STALE'/.test(release));
+check("release requires the expected version (STALE otherwise)", /dec\.version !== Number\(expectedVersion\)\) throw fail\("STALE"\)/.test(release));
 check("canRelease: stale version → 409", canRelease({ paper, decision: { round: 0, version: 3, released_at: null }, expectedVersion: 2 }).status === 409);
 check("canRelease: double release → 409", canRelease({ paper, decision: { round: 0, version: 1, released_at: "t" }, expectedVersion: 1 }).status === 409);
 check("canRelease: matching version → OK", canRelease({ paper, decision: { round: 0, version: 2, released_at: null }, expectedVersion: 2 }).ok);
@@ -167,7 +194,7 @@ console.log("\nNo author identity in editor/reviewer-facing APIs:");
 {
   const editorial = read("../app/api/editorial/route.js");
   // The only allowed use: excluding the admin's OWN papers (a filter, never selected or returned).
-  const OWN_EXCLUSION = 'paperQ = paperQ.neq("submitted_by", me.id)';
+  const OWN_EXCLUSION = "WHERE submitted_by <> ? ORDER BY updated_at DESC LIMIT 500`, [me.id]";
   check("editorial dashboard never selects paper_authors or submitted_by", !/paper_authors|submitted_by/.test(editorial.replace(OWN_EXCLUSION, "")));
   check("editorial dashboard excludes an admin's own papers", editorial.includes(OWN_EXCLUSION));
   const decisionsRoute = read("../app/api/papers/[id]/decisions/route.js");

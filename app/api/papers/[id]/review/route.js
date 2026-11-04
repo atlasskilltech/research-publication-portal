@@ -12,7 +12,9 @@
 // Author identity is never touched here.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db, T, isDuplicate } from "@/lib/db";
+import { uuid } from "@/lib/auth/crypto.mjs";
+import { logActivity } from "@/lib/repos/rows.mjs";
 import { notifyLater } from "@/lib/notifyServer";
 import { validateReview, isReviewerAssignee } from "@/lib/reviewLogic";
 import { loadPaperContext } from "@/lib/paperAccess";
@@ -29,15 +31,16 @@ export async function GET(_request, { params }) {
   const { id } = await params;
 
   try {
-    const admin = createAdminClient();
-    const ctx = await loadPaperContext(admin, id, me);
+    const ctx = await loadPaperContext(db, id, me);
     if (!ctx || !isReviewerAssignee(ctx.assignments, me.id)) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
     const round = ctx.paper.current_round ?? 0;
 
-    const { data: mine } = await admin
-      .from("reviews").select(REVIEW_COLS).eq("paper_id", id).eq("reviewer", me.id).order("round", { ascending: true });
+    const mine = await db.query(
+      `SELECT ${REVIEW_COLS} FROM \`${T.reviews}\` WHERE paper_id = ? AND reviewer = ? ORDER BY round ASC`,
+      [id, me.id],
+    );
     const current = (mine || []).find((r) => r.round === round) || null;
 
     // Earlier rounds + the author's answers to this reviewer, from the revision
@@ -63,7 +66,7 @@ export async function GET(_request, { params }) {
       history,
     });
   } catch (e) {
-    console.error("review GET:", e?.message);
+    console.error("review GET:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not load the review." }, { status: 500 });
   }
 }
@@ -87,8 +90,7 @@ export async function PUT(request, { params }) {
   }
 
   try {
-    const admin = createAdminClient();
-    const ctx = await loadPaperContext(admin, id, me);
+    const ctx = await loadPaperContext(db, id, me);
     // Must be an assigned PEER/DESK reviewer (admins may not ghost-write a review).
     if (!ctx || !isReviewerAssignee(ctx.assignments, me.id)) {
       return NextResponse.json({ error: "You are not assigned to review this paper." }, { status: 403 });
@@ -100,41 +102,45 @@ export async function PUT(request, { params }) {
     const already = () =>
       NextResponse.json({ error: "You have already submitted your review for this round." }, { status: 409 });
 
-    const row = {
-      status: final ? "SUBMITTED" : "DRAFT",
-      ...verdict.value,
-      submitted_at: final ? new Date().toISOString() : null,
-    };
+    const status = final ? "SUBMITTED" : "DRAFT";
+    const v = verdict.value;
+    const submittedAt = final ? new Date() : null;
+    const values = [
+      v.recommendation, v.technical_quality, v.originality, v.methodology, v.clarity,
+      v.strengths, v.weaknesses, v.comments_to_author, v.confidential_to_editor,
+    ];
 
-    const { data: existing } = await admin
-      .from("reviews")
-      .select("id, status")
-      .eq("paper_id", id)
-      .eq("reviewer", me.id)
-      .eq("round", round)
-      .maybeSingle();
+    const existing = await db.one(
+      `SELECT id, status FROM \`${T.reviews}\` WHERE paper_id = ? AND reviewer = ? AND round = ?`,
+      [id, me.id, round],
+    );
     if (existing?.status === "SUBMITTED") return already();
 
     if (existing) {
       // Conditional update: only a DRAFT can change. If a concurrent request
       // submitted in between, zero rows match → 409 instead of an overwrite.
-      const { data: updated, error: updErr } = await admin
-        .from("reviews")
-        .update(row)
-        .eq("id", existing.id)
-        .eq("status", "DRAFT")
-        .select("id");
-      if (updErr) throw updErr;
-      if (!updated?.length) return already();
+      const r = await db.exec(
+        `UPDATE \`${T.reviews}\` SET status = ?, recommendation = ?, technical_quality = ?, originality = ?, methodology = ?, clarity = ?,
+                strengths = ?, weaknesses = ?, comments_to_author = ?, confidential_to_editor = ?, submitted_at = ?
+          WHERE id = ? AND status = 'DRAFT'`,
+        [status, ...values, submittedAt, existing.id],
+      );
+      if (r.affectedRows !== 1) return already();
     } else {
-      const { error: insErr } = await admin
-        .from("reviews")
-        .insert({ paper_id: id, reviewer: me.id, round, ...row });
-      // 23505 = unique (paper_id, reviewer, round): a concurrent first save won.
-      if (insErr?.code === "23505") {
-        return NextResponse.json({ error: "Your review was just saved elsewhere. Reload and try again." }, { status: 409 });
+      try {
+        await db.exec(
+          `INSERT INTO \`${T.reviews}\` (id, paper_id, reviewer, round, status, recommendation, technical_quality, originality, methodology, clarity,
+                  strengths, weaknesses, comments_to_author, confidential_to_editor, submitted_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))`,
+          [uuid(), id, me.id, round, status, ...values, submittedAt],
+        );
+      } catch (insErr) {
+        // Unique (paper_id, reviewer, round): a concurrent first save won.
+        if (isDuplicate(insErr)) {
+          return NextResponse.json({ error: "Your review was just saved elsewhere. Reload and try again." }, { status: 409 });
+        }
+        throw insErr;
       }
-      if (insErr) throw insErr;
     }
 
     // Audit (admin-only visibility). Round 0 = REVIEW_*, later rounds = REREVIEW_*.
@@ -142,16 +148,13 @@ export async function PUT(request, { params }) {
     const prefix = round > 0 ? "REREVIEW" : "REVIEW";
     const action = final ? `${prefix}_SUBMITTED` : existing ? null : `${prefix}_STARTED`;
     if (action) {
-      await admin.from("paper_activity").insert({
-        paper_id: id, actor: me.id, action,
-        detail: final ? { round, recommendation: verdict.value.recommendation } : { round },
-      });
+      await logActivity(db, id, me.id, action, final ? { round, recommendation: v.recommendation } : { round });
     }
 
     if (final) notifyLater("REVIEW_SUBMITTED", { paperId: id, actorId: me.id, round });
-    return NextResponse.json({ ok: true, status: row.status, round });
+    return NextResponse.json({ ok: true, status, round });
   } catch (e) {
-    console.error("review PUT:", e?.message);
+    console.error("review PUT:", e?.code || e?.message);
     return NextResponse.json({ error: "Could not save the review." }, { status: 500 });
   }
 }
