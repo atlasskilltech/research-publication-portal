@@ -19,11 +19,12 @@ const API = [
   ["PUT", `/api/papers/${Z}/revisions/1`], ["POST", `/api/papers/${Z}/revisions/1/manuscript`], ["POST", `/api/papers/${Z}/revisions/1/rereview`],
   ["GET", "/api/reviews"], ["GET", "/api/revisions"], ["GET", "/api/editorial"], ["GET", "/api/dashboard"], ["GET", "/api/activity"],
   ["GET", "/api/admin/users"], ["PATCH", `/api/admin/users/${Z}`], ["DELETE", `/api/admin/users/${Z}`], ["GET", "/api/admin/reviews"],
+  ["GET", "/api/admin/stats"], ["GET", `/api/admin/stats/users/${Z}`],
   ["GET", "/api/publications/manage"], ["POST", "/api/publications"], ["PATCH", `/api/publications/${Z}`],
   ["POST", `/api/publications/${Z}/publish`], ["POST", "/api/publications/volumes"], ["PATCH", `/api/publications/volumes/${Z}`],
   ["POST", "/api/publications/issues"], ["PATCH", `/api/publications/issues/${Z}`],
 ];
-const PAGES = ["/dashboard", "/submissions", "/submit", "/reviews", "/revisions", "/editorial", "/publications/manage", "/activity", "/users", `/submissions/${Z}`];
+const PAGES = ["/dashboard", "/submissions", "/submit", "/reviews", "/revisions", "/editorial", "/publications/manage", "/activity", "/users", "/statistics", `/submissions/${Z}`];
 const PUBLIC = ["/", "/login", "/register", "/auth/forgot-password", "/auth/resend", "/publications"];
 
 console.log(`\nProtected APIs without a session (${BASE}):`);

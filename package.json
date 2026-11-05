@@ -37,6 +37,7 @@
     "db:import-supabase-export": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migration/import-supabase-export.mjs",
     "test:mysql": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-mysql-integration.mjs",
     "test:author-mysql": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-author-mysql.mjs",
+    "test:paper-stats": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-paper-stats-mysql.mjs",
     "storage:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/storage-check.mjs",
     "email:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/email-check.mjs"
   },

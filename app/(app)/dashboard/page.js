@@ -187,7 +187,7 @@ export default function DashboardPage() {
 
       {/* ---- People (admin) ---- */}
       {d.people && (
-        <Section title="People & roles" action={<Link href="/users" className="text-xs font-semibold text-accent hover:underline">Manage people</Link>}>
+        <Section title="People & roles" action={<span className="flex gap-3"><Link href="/statistics" className="text-xs font-semibold text-accent hover:underline">Paper statistics</Link><Link href="/users" className="text-xs font-semibold text-accent hover:underline">Manage people</Link></span>}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
             <KpiCard label="Accounts" value={d.people.total} />
             <KpiCard label="Students" value={d.people.students} />
