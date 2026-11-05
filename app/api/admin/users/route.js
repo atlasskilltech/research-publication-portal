@@ -27,6 +27,7 @@ export async function GET() {
       applicationNo: p.application_no || null,
       createdAt: p.created_at,
       verified: !!p.email_confirmed_at,
+      status: p.status === "DISABLED" ? "DISABLED" : "ACTIVE",
     }));
     return NextResponse.json({ users });
   } catch (e) {

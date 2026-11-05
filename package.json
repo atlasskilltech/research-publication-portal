@@ -34,11 +34,13 @@
     "db:set-password": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/set-user-password.mjs",
     "db:import-supabase-export": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migration/import-supabase-export.mjs",
     "test:mysql": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-mysql-integration.mjs",
-    "storage:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/storage-check.mjs"
+    "storage:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/storage-check.mjs",
+    "email:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/email-check.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1161.0",
     "@node-rs/argon2": "^2.2.2",
+    "@sendgrid/mail": "^8.1.6",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.15",
     "mysql2": "^3.24.6",
