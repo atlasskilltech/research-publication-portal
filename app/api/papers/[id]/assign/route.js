@@ -51,6 +51,7 @@ export async function POST(request, { params }) {
 
     const profile = assignee ? await findUserById(db, assignee) : null;
     if (!profile) return NextResponse.json({ error: "That user does not exist." }, { status: 404 });
+    if (profile.status !== "ACTIVE") return NextResponse.json({ error: "That account is disabled and can't be assigned." }, { status: 409 });
 
     // Conflict of interest: never assign a paper to its submitter or an author.
     const authorRows = await db.query(`SELECT email FROM \`${T.paperAuthors}\` WHERE paper_id = ?`, [id]);

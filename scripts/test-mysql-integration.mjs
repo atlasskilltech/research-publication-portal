@@ -20,7 +20,7 @@ import { createSession, readSession, revokeSession, revokeAllSessions, issueToke
 import { sha256Hex, uuid } from "../lib/auth/crypto.mjs";
 import {
   createRegisteredUser, findUserById, findUserByEmail, findCredentials, findUserByApplicationNo, setUserRoles, deleteUser,
-  rolesFor, listUsersWithRoles, setPasswordHash,
+  rolesFor, listUsersWithRoles, setPasswordHash, setUserStatus, userHistory, countAdmins,
 } from "../lib/repos/users.mjs";
 import { jrow, jrows, logActivity } from "../lib/repos/rows.mjs";
 import * as wf from "../lib/services/workflow.mjs";
@@ -318,19 +318,77 @@ try {
   check("workflow errors map to HTTP via mapRpcError", mapRpcError(new Error("RPP:STALE"))?.status === 409 && mapRpcError(new Error("RPP:FORBIDDEN"))?.status === 403);
 
   // ---- Cascades -----------------------------------------------------------------------------------------------------
-  section("Account deletion cascades");
+  section("Account deletion: history is protected");
   const temp = await mk("temp@atlasuniversity.edu.in");
   await setPasswordHash(db, temp, await hashPassword("Temp#Pass20266"));
   await createSession(db, temp, { policy: pol });
-  await issueToken(db, temp, "RECOVERY");
-  await db.exec(`INSERT INTO \`${T.userIdentities}\` (id, user_id, provider, subject, email) VALUES (?, ?, 'google', 'sub-temp', 'temp@atlasuniversity.edu.in')`, [uuid(), temp]);
   await roles(manager, temp, ["PEER_REVIEWER"]);
   const tp = uuid();
   await db.exec(`INSERT INTO \`${T.papers}\` (id, title, abstract, keywords, submitted_by) VALUES (?, 'Temp paper', '', '[]', ?)`, [tp, temp]);
-  check("delete account", await db.transaction((tx) => deleteUser(tx, temp)));
-  const left = await Promise.all([T.sessions, T.authTokens, T.userIdentities, T.userRoles].map((t) => db.one(`SELECT COUNT(*) AS n FROM \`${t}\` WHERE ${t === T.sessions ? "userId" : "user_id"} = ?`, [temp])));
-  check("sessions, tokens, identities and roles removed with the account", left.every((r) => Number(r.n) === 0));
-  check("the user's paper is kept with submitted_by = NULL", (await db.one(`SELECT submitted_by FROM \`${T.papers}\` WHERE id = ?`, [tp])).submitted_by === null);
+  check("account that owns a paper → userHistory counts it", (await userHistory(db, temp)).papers === 1);
+  check("…deleting it is refused → HAS_HISTORY", (await rpp(db.transaction((tx) => deleteUser(tx, temp)))) === "HAS_HISTORY");
+  check("…account, paper owner and roles untouched", !!(await findUserById(db, temp)) && (await db.one(`SELECT submitted_by FROM \`${T.papers}\` WHERE id = ?`, [tp])).submitted_by === temp && (await rolesFor(db, temp)).join() === "PEER_REVIEWER");
+  const reviewsBefore = Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.reviews}\` WHERE reviewer = ?`, [reviewer])).n);
+  const rh = await userHistory(db, reviewer);
+  check("reviewer with submitted reviews → history includes them", rh.submitted_reviews >= 1 && rh.reviews === reviewsBefore && rh.total > 0);
+  check("…deleting the reviewer is refused → HAS_HISTORY (reviews NOT cascaded away)", (await rpp(db.transaction((tx) => deleteUser(tx, reviewer)))) === "HAS_HISTORY" && Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.reviews}\` WHERE reviewer = ?`, [reviewer])).n) === reviewsBefore);
+  check("editor who released decisions → deletion refused", (await userHistory(db, editor)).total > 0 && (await rpp(db.transaction((tx) => deleteUser(tx, editor)))) === "HAS_HISTORY");
+
+  // A mistaken registration with no workflow footprint can still be deleted.
+  const blank = await mk("blank@atlasuniversity.edu.in");
+  await setPasswordHash(db, blank, await hashPassword("Blank#Pass20266"));
+  await createSession(db, blank, { policy: pol });
+  await issueToken(db, blank, "RECOVERY");
+  await db.exec(`INSERT INTO \`${T.userIdentities}\` (id, user_id, provider, subject, email) VALUES (?, ?, 'google', 'sub-blank', 'blank@atlasuniversity.edu.in')`, [uuid(), blank]);
+  await roles(manager, blank, ["PEER_REVIEWER"]);
+  check("account with no history → userHistory total 0", (await userHistory(db, blank)).total === 0);
+  check("…can be deleted", await db.transaction((tx) => deleteUser(tx, blank)));
+  const left = await Promise.all([T.sessions, T.authTokens, T.userIdentities, T.userRoles].map((t) => db.one(`SELECT COUNT(*) AS n FROM \`${t}\` WHERE ${t === T.sessions ? "userId" : "user_id"} = ?`, [blank])));
+  check("…and its sessions, tokens, identities and roles go with it", left.every((r) => Number(r.n) === 0));
+
+  section("Disable / reactivate (records preserved)");
+  const setStatus = (actor, target, status, prot = []) => db.transaction((tx) => setUserStatus(tx, { actorId: actor, targetId: target, status, protectedEmails: prot }));
+  const revSession = await createSession(db, reviewer, { policy: pol });
+  const revSession2 = await createSession(db, reviewer, { policy: pol });
+  await setPasswordHash(db, reviewer, await hashPassword("Reviewer#Pass2026"));
+  const snapshot = async (id) => JSON.stringify({
+    reviews: (await db.query(`SELECT id, status, recommendation FROM \`${T.reviews}\` WHERE reviewer = ? ORDER BY id`, [id])),
+    assignments: (await db.query(`SELECT paper_id, role FROM \`${T.paperAssignments}\` WHERE assignee = ? ORDER BY paper_id, role`, [id])),
+    roles: await rolesFor(db, id),
+    activity: Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.paperActivity}\` WHERE actor = ?`, [id])).n),
+    decisions: Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.editorialDecisions}\``)).n),
+    base: (await findUserById(db, id)).base_type,
+  });
+  const before = await snapshot(reviewer);
+  check("non-admin cannot disable → FORBIDDEN", (await rpp(setStatus(studentId, reviewer, "DISABLED"))) === "FORBIDDEN");
+  check("admin cannot disable themself → SELF", (await rpp(setStatus(manager, manager, "DISABLED"))) === "SELF");
+  check("invalid status → INVALID_STATUS", (await rpp(setStatus(manager, reviewer, "DELETED"))) === "INVALID_STATUS");
+  check("admin disables the reviewer", (await setStatus(manager, reviewer, "DISABLED")).status === "DISABLED" && (await findUserById(db, reviewer)).status === "DISABLED");
+  check("…every session of the user revoked", (await readSession(db, revSession.token, { policy: pol })) === null && (await readSession(db, revSession2.token, { policy: pol })) === null);
+  const newAfter = await createSession(db, reviewer, { policy: pol });
+  check("…a session created afterwards is refused too (status checked on every request)", (await readSession(db, newAfter.token, { policy: pol })) === null);
+  const cred = await findCredentials(db, "reviewer@atlasuniversity.edu.in");
+  check("…password sign-in refused (login requires status ACTIVE)", cred.status === "DISABLED" && !!cred.password_hash);
+  check("…reviews, assignments, roles, activity, decisions and base type all unchanged", (await snapshot(reviewer)) === before);
+  check("…account still listed for admins with status DISABLED", (await listUsersWithRoles(db)).find((u) => u.id === reviewer).status === "DISABLED");
+  check("disabling again is a no-op", (await setStatus(manager, reviewer, "DISABLED")).changed === false);
+  check("admin reactivates the reviewer", (await setStatus(manager, reviewer, "ACTIVE")).status === "ACTIVE" && (await findUserById(db, reviewer)).status === "ACTIVE");
+  const fresh = await createSession(db, reviewer, { policy: pol });
+  check("…new sessions work again; old ones stay revoked", !!(await readSession(db, fresh.token, { policy: pol })) && (await readSession(db, revSession.token, { policy: pol })) === null);
+  check("…records still unchanged after reactivation", (await snapshot(reviewer)) === before);
+
+  // Admin protections still hold, counting only ACTIVE admins.
+  const admin2 = await mk("admin.two@atlasuniversity.edu.in", { baseType: "FACULTY" });
+  await roles(manager, admin2, ["ADMINISTRATOR"]);
+  check("two active admins", (await countAdmins(db)) === 2);
+  check("protected admin cannot be disabled → PROTECTED", (await rpp(setStatus(manager, admin2, "DISABLED", ["admin.two@atlasuniversity.edu.in"]))) === "PROTECTED");
+  await setStatus(manager, admin2, "DISABLED");
+  check("disabling an admin lowers the ACTIVE admin count", (await countAdmins(db)) === 1);
+  check("a disabled admin can't act (FORBIDDEN)", (await rpp(setStatus(admin2, reviewer, "DISABLED"))) === "FORBIDDEN");
+  check("last ACTIVE admin can't be demoted while the other admin is disabled → LAST_ADMIN", (await rpp(roles(admin2, manager, []))) === "LAST_ADMIN" && (await findUserById(db, manager)).is_admin === true);
+  check("last ACTIVE admin can't be deleted → LAST_ADMIN", (await rpp(db.transaction((tx) => deleteUser(tx, manager)))) === "LAST_ADMIN");
+  await setStatus(manager, admin2, "ACTIVE");
+  check("reactivated admin counts again", (await countAdmins(db)) === 2);
   check("UNIQUE google sub across accounts", (await rpp(db.exec(`INSERT INTO \`${T.userIdentities}\` (id, user_id, provider, subject, email) VALUES (?, ?, 'google', 's1', 'a@x'), (?, ?, 'google', 's1', 'b@x')`, [uuid(), editor, uuid(), reviewer]))) === "ER_DUP_ENTRY");
   void toDate;
 } catch (e) {

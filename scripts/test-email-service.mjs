@@ -185,13 +185,18 @@ console.log("\nServer-only boundaries:");
 {
   const resendJs = read("../lib/email/send.js");
   check("lib/email/send.js is server-only", /^import "server-only";/.test(resendJs));
-  check("SMTP credentials read from server env only", /process.env.EMAIL_APP_PASSWORD/.test(read("../lib/config/env.js")) && !/NEXT_PUBLIC_EMAIL/.test(read("../lib/config/env.js")));
-  const env = read("../lib/config/env.js");
-  check("RESEND_API_KEY read from server env only (never NEXT_PUBLIC_)", /process\.env\.RESEND_API_KEY/.test(env) && !/NEXT_PUBLIC_RESEND|NEXT_PUBLIC_EMAIL/.test(env + read("../.env.example")));
+  const env = read("../lib/config/env.js") + read("../lib/email/config.js");
+  check("app config delegates to the pure provider config", /return resolveEmailConfig\(process\.env\)/.test(read("../lib/config/env.js")));
+  check("SMTP credentials read from server env only", /env\.EMAIL_APP_PASSWORD/.test(env) && !/NEXT_PUBLIC_EMAIL/.test(env));
+  check("RESEND_API_KEY / SENDGRID_API_KEY read from server env only (never NEXT_PUBLIC_)", /env\.RESEND_API_KEY/.test(env) && /env\.SENDGRID_API_KEY/.test(env) && !/NEXT_PUBLIC_RESEND|NEXT_PUBLIC_SENDGRID|NEXT_PUBLIC_EMAIL/.test(env + read("../.env.example")));
   const clientFiles = ["../components/auth/CreatePasswordForm.jsx", "../components/auth/ResendSetupForm.jsx", "../components/auth/FragmentScrubber.jsx", "../components/auth/ConfirmSubmit.jsx"];
   check("no client component imports the email service", clientFiles.every((f) => !/lib\/email|resend/i.test(read(f).replace(/\/api\/auth\/resend|ResendSetup|Resend setup/g, ""))));
-  check(".env.example documents the SMTP settings (EMAIL_ID / EMAIL_APP_PASSWORD placeholders, EMAIL_FROM_NAME, empty EMAIL_REPLY_TO)", /^EMAIL_ID=you@example\.com\s*$/m.test(read("../.env.example")) && /^EMAIL_APP_PASSWORD=x+\s*$/m.test(read("../.env.example")) && /^EMAIL_FROM_NAME=Research Publication Portal\s*$/m.test(read("../.env.example")) && /^EMAIL_REPLY_TO=\s*$/m.test(read("../.env.example")));
-  check("no hard-coded Resend key or sender address in lib/", !/re_[A-Za-z0-9]{20,}/.test(read("../lib/email/core.js") + resendJs + read("../lib/authMailer.js")) && !/@atlasskilltech\.app|@atlasuniversity\.edu\.in/.test(resendJs + read("../lib/email/core.js")));
+  const ex = read("../.env.example");
+  check(".env.example documents SendGrid with an EMPTY key (EMAIL_PROVIDER, SENDGRID_API_KEY=, EMAIL_FROM, EMAIL_FROM_NAME, EMAIL_REPLY_TO) and the SMTP/Resend alternatives",
+    /^EMAIL_PROVIDER=sendgrid\s*$/m.test(ex) && /^SENDGRID_API_KEY=\s*$/m.test(ex) && /^EMAIL_FROM=\S+@\S+\s*$/m.test(ex) && /^EMAIL_FROM_NAME=.+$/m.test(ex) && /^EMAIL_REPLY_TO=\s*$/m.test(ex) && /EMAIL_APP_PASSWORD=/.test(ex) && /RESEND_API_KEY=/.test(ex));
+  check("no SendGrid key anywhere in the repo files checked", !/SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/.test(ex + read("../lib/email/send.js") + read("../lib/email/sendgrid.js") + read("../lib/email/config.js")));
+  const libEmail = read("../lib/email/core.js") + resendJs + read("../lib/authMailer.js") + read("../lib/email/sendgrid.js") + read("../lib/email/config.js");
+  check("no hard-coded provider key or sender address in lib/", !/re_[A-Za-z0-9]{20,}|SG\.[A-Za-z0-9_-]{10,}/.test(libEmail) && !/@atlasskilltech\.app|@atlasuniversity\.edu\.in|elizabeth/i.test(libEmail));
 }
 
 console.log("\nTemplates:");
@@ -264,5 +269,106 @@ console.log("\nPassword recovery email flow:");
   check("password-changed confirmation sent, links only to /login", pc.ok && sent[2].purpose === "password_changed" && sent[2].html.includes("https://research.atlasskilltech.app/login") && !sent[2].html.includes("token_hash"));
 }
 
-console.log(`\n${failures === 0 ? "✓ PASS — email service is sound (mocked SMTP + Resend)." : `✗ FAIL — ${failures} check(s) failed.`}\n`);
+
+console.log("\nProvider configuration (lib/email/config.js):");
+{
+  const { resolveEmailConfig, describeEmailConfig } = await import("../lib/email/config.js");
+  const SG = { EMAIL_PROVIDER: "sendgrid", SENDGRID_API_KEY: "SG.fake-test-key", EMAIL_FROM: "sender@example.edu", EMAIL_FROM_NAME: "Test Sender" };
+  const sg = resolveEmailConfig(SG);
+  check("EMAIL_PROVIDER=sendgrid → sendgrid with SENDGRID_API_KEY, EMAIL_FROM, EMAIL_FROM_NAME", sg.provider === "sendgrid" && sg.apiKey === "SG.fake-test-key" && sg.from === "sender@example.edu" && sg.fromName === "Test Sender" && sg.credentialName === "SENDGRID_API_KEY");
+  check("…and resolves to a valid 'Name <addr>' sender", resolveSender(sg).ok && resolveSender(sg).from === "Test Sender <sender@example.edu>");
+  check("EMAIL_PROVIDER is case/space-insensitive", resolveEmailConfig({ ...SG, EMAIL_PROVIDER: "  SendGrid " }).provider === "sendgrid");
+  check("sendgrid without key → config error naming SENDGRID_API_KEY (no crash)", /SENDGRID_API_KEY is not set/.test(resolveSender(resolveEmailConfig({ ...SG, SENDGRID_API_KEY: "" })).error));
+  check("sendgrid without EMAIL_FROM → config error", /EMAIL_FROM/.test(resolveSender(resolveEmailConfig({ ...SG, EMAIL_FROM: "" })).error));
+  check("explicit sendgrid wins over SMTP credentials", resolveEmailConfig({ ...SG, EMAIL_ID: "a@b.c", EMAIL_APP_PASSWORD: "x" }).provider === "sendgrid");
+  check("explicit smtp / resend still selectable", resolveEmailConfig({ EMAIL_PROVIDER: "smtp", EMAIL_ID: "a@b.co", EMAIL_APP_PASSWORD: "abcd efgh" }).smtp.pass === "abcdefgh" && resolveEmailConfig({ EMAIL_PROVIDER: "resend", RESEND_API_KEY: "re_x" }).provider === "resend");
+  check("unknown EMAIL_PROVIDER → config error, never a crash", /EMAIL_PROVIDER must be one of/.test(resolveSender(resolveEmailConfig({ EMAIL_PROVIDER: "mailgun", EMAIL_FROM: "a@b.co" })).error));
+  check("unset provider keeps old behaviour: SMTP if configured", resolveEmailConfig({ EMAIL_ID: "a@b.co", EMAIL_APP_PASSWORD: "x" }).provider === "smtp");
+  check("unset provider: SendGrid if only its key is set, else Resend", resolveEmailConfig({ SENDGRID_API_KEY: "k" }).provider === "sendgrid" && resolveEmailConfig({}).provider === "resend");
+  const d = JSON.stringify(describeEmailConfig(sg));
+  check("status summary never contains the key or the full sender address", !d.includes("SG.fake-test-key") && !d.includes("sender@example.edu") && /SENDGRID_API_KEY set/.test(d));
+  check("unconfigured core returns ok:false 'config' without calling any provider", (await createEmailSender({ client: null, config: resolveEmailConfig({ EMAIL_PROVIDER: "sendgrid" }), logger: captureLogger() })(MSG)).code === "config");
+}
+
+console.log("\nSendGrid adapter (mocked @sendgrid/mail MailService, no network):");
+{
+  const { createSendgridClient, sendgridErrorName, parseFrom } = await import("../lib/email/sendgrid.js");
+  const { resolveEmailConfig } = await import("../lib/email/config.js");
+  const sgError = (code, errors = []) => Object.assign(new Error("Bad"), { code, response: { headers: {}, body: { errors } } });
+  function mockSendgrid(script = []) {
+    const calls = [];
+    let i = 0;
+    return {
+      calls,
+      send: async (msg) => {
+        calls.push(msg);
+        const r = script[Math.min(i++, Math.max(script.length - 1, 0))];
+        if (r instanceof Error) throw r;
+        return [r || { statusCode: 202, headers: { "x-message-id": `sg-${calls.length}` } }, {}];
+      },
+    };
+  }
+  const cfg = resolveEmailConfig({ EMAIL_PROVIDER: "sendgrid", SENDGRID_API_KEY: "SG.fake-test-key", EMAIL_FROM: "sender@example.edu", EMAIL_FROM_NAME: "Test Sender", EMAIL_REPLY_TO: "help@example.edu" });
+  const svc = mockSendgrid();
+  const log = captureLogger();
+  const send = createEmailSender({ client: createSendgridClient(svc), config: cfg, logger: log, sleep: noSleep() });
+  const r = await send({ ...MSG, key: "k-1" });
+  const m = svc.calls[0];
+  check("202 → ok with SendGrid's x-message-id", r.ok && r.id === "sg-1");
+  check("from = { email, name } from EMAIL_FROM / EMAIL_FROM_NAME", m.from.email === "sender@example.edu" && m.from.name === "Test Sender");
+  check("to / subject / html / text / replyTo passed through", m.to[0] === MSG.to && m.subject === "S" && m.html.includes(LINK) && m.text === LINK && m.replyTo === "help@example.edu");
+  check("click + open tracking disabled (reset links never rewritten)", m.trackingSettings.clickTracking.enable === false && m.trackingSettings.openTracking.enable === false);
+  check("purpose → category; idempotency key → header + custom arg", m.categories[0] === "invite" && m.headers["X-Entity-Ref-ID"] === "k-1" && m.customArgs.ref === "k-1");
+  check("API key never in the payload or the logs", !JSON.stringify(m).includes("SG.fake-test-key") && !log.lines.join("").includes("SG.fake-test-key"));
+  const dup = await send({ ...MSG, key: "k-1" });
+  check("same email twice → SendGrid called once (no duplicates)", dup.ok && dup.deduplicated === true && svc.calls.length === 1);
+  check("parseFrom handles a bare address", parseFrom("a@b.co").email === "a@b.co" && parseFrom("a@b.co").name === undefined);
+
+  const classify = (e) => classifyEmailError({ name: sendgridErrorName(e) });
+  check("401 bad key → config (not retried)", classify(sgError(401)).code === "config" && !classify(sgError(401)).retryable);
+  check("403 unverified sender → config", sendgridErrorName(sgError(403, [{ message: "The from address does not match a verified Sender Identity." }])) === "invalid_from_address" && classify(sgError(403, [{ message: "The from address does not match a verified Sender Identity." }])).code === "config");
+  check("429 → rate limited (retryable)", classify(sgError(429)).code === "rate_limited" && classify(sgError(429)).retryable);
+  check("5xx → provider unavailable (retryable)", classify(sgError(503)).code === "provider_unavailable" && classify(sgError(503)).retryable);
+  check("400 → rejected (not retried)", classify(sgError(400)).code === "rejected");
+
+  const unverified = mockSendgrid([sgError(403, [{ message: "The from address does not match a verified Sender Identity." }])]);
+  const ulog = captureLogger();
+  const ur = await createEmailSender({ client: createSendgridClient(unverified), config: cfg, logger: ulog, sleep: noSleep() })({ ...MSG, key: "k-2" });
+  check("unverified sender → ok:false 'config', one attempt, no throw", !ur.ok && ur.code === "config" && unverified.calls.length === 1);
+  check("failure log is secret-free (no key, no body, no link)", !ulog.lines.join("").match(/SG\.fake|token_hash|<p>/) && /invalid_from_address/.test(ulog.lines.join("")));
+  const flaky = mockSendgrid([sgError(500), { statusCode: 202, headers: { "x-message-id": "sg-ok" } }]);
+  const fr = await createEmailSender({ client: createSendgridClient(flaky), config: cfg, logger: captureLogger(), sleep: noSleep() })({ ...MSG, key: "k-3" });
+  check("transient 500 retried once with the same message, then delivered", fr.ok && flaky.calls.length === 2 && flaky.calls[0].customArgs.ref === flaky.calls[1].customArgs.ref);
+  const net = mockSendgrid([Object.assign(new Error("getaddrinfo ENOTFOUND api.sendgrid.com"), { code: "ENOTFOUND" })]);
+  const nr = await createEmailSender({ client: createSendgridClient(net), config: cfg, logger: captureLogger(), sleep: noSleep() })({ ...MSG, key: "k-4" });
+  check("network failure → 'network' after one retry, never throws", !nr.ok && nr.code === "network" && net.calls.length === 2);
+
+  // Every existing account email + workflow notification goes through the same
+  // sendEmail → core → adapter path; run each real template through SendGrid.
+  const { registrationConfirmedEmail, signInInstructionsEmail } = await import("../lib/email/templates.js");
+  const { buildNotification, EVENTS } = await import("../lib/notifications.js");
+  const site = "https://research.atlasskilltech.app";
+  const all = mockSendgrid();
+  const sendAll = createEmailSender({ client: createSendgridClient(all), config: cfg, logger: captureLogger(), sleep: noSleep() });
+  const msgs = [
+    ["registration_confirmed", registrationConfirmedEmail({ siteUrl: site, loginUrl: `${site}/login`, name: "A", accountType: "STUDENT" })],
+    ["signin_instructions", signInInstructionsEmail({ siteUrl: site, loginUrl: `${site}/login` })],
+    ["password_reset", resetEmail({ siteUrl: site, link: LINK.replace("type=invite&flow=setup", "type=recovery&flow=reset") })],
+    ["password_added", passwordChangedEmail({ siteUrl: site, loginUrl: `${site}/login`, added: true })],
+    ["password_changed", passwordChangedEmail({ siteUrl: site, loginUrl: `${site}/login` })],
+  ];
+  const base = { paperId: "p-1", title: "A study", recipientName: "R", siteUrl: site, round: 1 };
+  for (const ev of Object.values(EVENTS)) {
+    let n = null;
+    try { n = buildNotification(ev, base); } catch { n = null; }
+    if (n?.subject && n?.html && n?.text) msgs.push([String(ev).toLowerCase(), n]);
+  }
+  const results = [];
+  for (const [purpose, mail] of msgs) results.push(await sendAll({ to: "someone@atlasuniversity.edu.in", ...mail, purpose, key: `${purpose}/1` }));
+  check(`all ${msgs.length} account + workflow emails delivered through SendGrid`, results.every((x) => x.ok) && all.calls.length === msgs.length, `${all.calls.length}/${msgs.length}`);
+  check("workflow notification events covered (submission, assignment, decision, revision, publication…)", msgs.length >= 5 + 6, `${msgs.length - 5} workflow events`);
+  check("each carries its own category and the configured sender", all.calls.every((c, i) => c.categories[0] === msgs[i][0].replace(/[^a-z0-9_-]/gi, "_") && c.from.email === "sender@example.edu"));
+}
+
+console.log(`\n${failures === 0 ? "✓ PASS — email service is sound (mocked SendGrid + SMTP + Resend)." : `✗ FAIL — ${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

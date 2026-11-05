@@ -10,7 +10,7 @@ import Modal from "@/components/ui/Modal";
 import Spinner from "@/components/ui/Spinner";
 import { cn } from "@/lib/cn";
 
-const FILTERS = ["ALL", "STUDENT", "FACULTY", "ADMIN"];
+const FILTERS = ["ALL", "STUDENT", "FACULTY", "ADMIN", "DISABLED"];
 // Additional assignable roles (base type Student/Faculty is separate).
 const ROLE_DEFS = [
   { value: "ADMINISTRATOR", label: "Administrator", note: "Full admin access (syncs with is_admin)" },
@@ -24,6 +24,7 @@ const ROLE_LABEL = Object.fromEntries(ROLE_DEFS.map((r) => [r.value, r.label]));
 function matchesFilter(u, filter) {
   if (filter === "ALL") return true;
   if (filter === "ADMIN") return u.isAdmin;
+  if (filter === "DISABLED") return u.status === "DISABLED";
   return u.baseType === filter;
 }
 function matchesSearch(u, q) {
@@ -44,7 +45,7 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
 
   const [manage, setManage] = useState(null);
   const [draftRoles, setDraftRoles] = useState(new Set());
-  const [confirm, setConfirm] = useState(null); // {kind:'promote'|'revoke'|'delete'}
+  const [confirm, setConfirm] = useState(null); // {kind:'promote'|'revoke'|'delete'|'disable'|'reactivate'}
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
 
@@ -61,12 +62,15 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
   useEffect(() => { load(); }, []);
 
   const adminCount = useMemo(() => users.filter((u) => u.isAdmin).length, [users]);
+  // Last-admin protection counts administrators who can still act.
+  const activeAdminCount = useMemo(() => users.filter((u) => u.isAdmin && u.status !== "DISABLED").length, [users]);
   const shown = useMemo(() => users.filter((u) => matchesFilter(u, filter) && matchesSearch(u, query)), [users, filter, query]);
   const count = (f) => users.filter((u) => matchesFilter(u, f)).length;
 
   const isProtected = (u) => protectedSet.has((u?.email || "").toLowerCase());
   const isSelf = (u) => u?.id === meId;
-  const isLastAdmin = (u) => u?.isAdmin && adminCount <= 1;
+  const isLastAdmin = (u) => u?.isAdmin && u?.status !== "DISABLED" && activeAdminCount <= 1;
+  const isDisabled = (u) => u?.status === "DISABLED";
 
   function openManage(u) {
     setManage(u);
@@ -104,6 +108,17 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
     }), (data) => {
       setUsers((p) => p.map((u) => u.id === manage.id ? { ...u, baseType: data.baseType, isAdmin: data.isAdmin, roles: data.roles } : u));
       setManage(null); setConfirm(null);
+    });
+  }
+
+  async function setStatus(next) {
+    const id = manage.id;
+    await run(() => fetch(`/api/admin/users/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: next }),
+    }), (data) => {
+      setUsers((p) => p.map((u) => u.id === id ? { ...u, status: data.status } : u));
+      setManage((m) => (m ? { ...m, status: data.status } : m));
+      setConfirm(null);
     });
   }
 
@@ -164,6 +179,7 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
                     {isProtected(u) && <Tag className="bg-soft-2 text-muted" icon="lock">PROTECTED</Tag>}
                     {isSelf(u) && <Tag className="bg-soft-2 text-muted">YOU</Tag>}
                     {u.verified === false && <Tag className="bg-warn-soft text-warn">PENDING</Tag>}
+                    {u.status === "DISABLED" && <Tag className="bg-danger-soft text-danger" icon="lock">DISABLED</Tag>}
                   </p>
                   <p className="truncate text-xs text-muted">{u.email}</p>
                 </div>
@@ -235,11 +251,31 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
               )}
             </div>
 
+            {/* Account status: disable / reactivate (keeps every record) */}
+            <div className="rounded-lg border border-line p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Account status</p>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <span className="text-xs text-muted">
+                  {isDisabled(manage)
+                    ? "Disabled: this person can't sign in. Their papers, reviews and history are kept."
+                    : "Active. Disabling signs them out everywhere and blocks sign-in; papers, reviews, decisions and history are kept, and you can reactivate later."}
+                </span>
+                {isDisabled(manage) ? (
+                  <Button variant="outline" size="sm" disabled={isSelf(manage)}
+                    onClick={() => { setActionError(""); setConfirm({ kind: "reactivate" }); }}>Reactivate</Button>
+                ) : (
+                  <Button variant="outline" size="sm" className="border-warn/40 text-warn hover:bg-warn-soft"
+                    disabled={isSelf(manage) || isProtected(manage) || isLastAdmin(manage)}
+                    onClick={() => { setActionError(""); setConfirm({ kind: "disable" }); }}>Disable account</Button>
+                )}
+              </div>
+            </div>
+
             {/* Delete */}
             <div className="rounded-lg border border-danger/20 p-3">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Danger zone</p>
               <div className="mt-2 flex items-center justify-between gap-3">
-                <span className="text-xs text-muted">Permanently delete this account and all its roles.</span>
+                <span className="text-xs text-muted">Permanently delete an account with no papers, reviews or other history (e.g. a mistaken registration). Accounts with history can only be disabled.</span>
                 <Button variant="outline" size="sm" className="border-danger/40 text-danger hover:bg-danger-soft"
                   disabled={isSelf(manage) || isProtected(manage) || isLastAdmin(manage)}
                   onClick={() => { setActionError(""); setConfirm({ kind: "delete" }); }}>Delete user</Button>
@@ -253,17 +289,23 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
 
         {manage && confirm && (
           <div className="space-y-4">
-            <div className={cn("rounded-lg border px-4 py-3 text-sm", confirm.kind === "delete" ? "border-danger/30 bg-danger-soft text-ink" : "border-warn/30 bg-warn-soft text-ink")}>
+            <div className={cn("rounded-lg border px-4 py-3 text-sm", confirm.kind === "delete" ? "border-danger/30 bg-danger-soft text-ink" : confirm.kind === "reactivate" ? "border-line bg-soft text-ink" : "border-warn/30 bg-warn-soft text-ink")}>
               {confirm.kind === "promote" && <>Grant <b>full administrator</b> access to <b>{manage.email}</b>? They will manage all users and roles, exactly like existing admins.</>}
               {confirm.kind === "revoke" && <>Revoke administrator access from <b>{manage.email}</b>? They will lose all admin abilities.</>}
               {confirm.kind === "delete" && <>Permanently delete <b>{manage.email}</b>? This removes the account, its profile and all roles for good — they can no longer log in. This cannot be undone.</>}
+              {confirm.kind === "disable" && <>Disable <b>{manage.email}</b>? They are signed out everywhere and can&apos;t sign in with Google or a password. Their roles, papers, reviews and history stay, and you can reactivate the account later.</>}
+              {confirm.kind === "reactivate" && <>Reactivate <b>{manage.email}</b>? They can sign in again with their existing roles.</>}
             </div>
             {actionError && <p className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">{actionError}</p>}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => { setConfirm(null); setActionError(""); }} disabled={busy}>Cancel</Button>
               {confirm.kind === "delete"
                 ? <Button variant="primary" className="bg-danger hover:bg-danger/90" onClick={deleteUser} disabled={busy}>{busy ? "Deleting…" : "Delete permanently"}</Button>
-                : <Button variant="primary" onClick={doSave} disabled={busy}>{busy ? "Saving…" : "Confirm & save"}</Button>}
+                : confirm.kind === "disable"
+                  ? <Button variant="primary" onClick={() => setStatus("DISABLED")} disabled={busy}>{busy ? "Disabling…" : "Disable account"}</Button>
+                  : confirm.kind === "reactivate"
+                    ? <Button variant="primary" onClick={() => setStatus("ACTIVE")} disabled={busy}>{busy ? "Reactivating…" : "Reactivate account"}</Button>
+                    : <Button variant="primary" onClick={doSave} disabled={busy}>{busy ? "Saving…" : "Confirm & save"}</Button>}
             </div>
           </div>
         )}

@@ -154,7 +154,7 @@ function AssignmentsCard({ paper, isAdmin, id, onChanged }) {
   }, [isAdmin]);
 
   // Only users who already hold the chosen role (reuse the user_roles system).
-  const eligible = useMemo(() => users.filter((u) => (u.roles || []).includes(role)), [users, role]);
+  const eligible = useMemo(() => users.filter((u) => u.status !== "DISABLED" && (u.roles || []).includes(role)), [users, role]);
   const nameById = useMemo(() => new Map(users.map((u) => [u.id, u.name || u.email])), [users]);
   const isReviewRole = role === "PEER_REVIEWER" || role === "DESK_REVIEWER";
   useEffect(() => { setAssignee(""); }, [role]);
