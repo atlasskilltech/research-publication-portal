@@ -6,6 +6,13 @@ on:
     branches:
       - main
 
+# One production deploy at a time: a second run (e.g. a duplicate push event)
+# waits for the running one instead of racing it on the same server (git ref
+# lock, npm ci, next build, pm2 reload). Queued runs are never cancelled mid-deploy.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
