@@ -78,9 +78,15 @@ side (state rows, token exchange, JWKS, identity linking) is in
 2. **Google Auth Platform → Branding:** set the app name to "Research Publication
    Portal" and a support email. Add `atlasskilltech.app` as an authorised
    domain.
-3. **Audience → User type: Internal** (recommended; only possible inside the
-   Workspace organisation). Google then admits only Workspace accounts at
-   consent. The portal enforces the domain itself either way.
+3. **Audience → User type: External, publishing status "In production"**
+   — REQUIRED since external Authors (AIDC 2026) sign in with any Google
+   account (Gmail, IIT, NIT, …). With "Internal", Google itself blocks every
+   non-ATLAS account before the portal sees it. The scopes below are
+   non-sensitive, so no Google app verification is needed. The portal still
+   enforces every rule server-side: Student/Faculty accounts accept only
+   verified `@atlasuniversity.edu.in` Google accounts; a non-university Google
+   account is accepted only for an AUTHOR account (see
+   `aidc-author-registration.md`).
 4. **Data access → scopes:** `openid`, `.../auth/userinfo.email` and
    `.../auth/userinfo.profile`, nothing else.
 5. **Clients → Create client → Web application:**

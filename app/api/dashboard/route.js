@@ -12,6 +12,8 @@ import { getSessionUser } from "@/lib/session";
 import { db, T } from "@/lib/db";
 import { summarizeAuthor, summarizeReviewer, summarizeEditorial, summarizeUsers } from "@/lib/dashboardLogic";
 import { REVIEWER_ROLES } from "@/lib/reviewLogic";
+import { findAuthorProfile } from "@/lib/repos/authors.mjs";
+import { CONFERENCE_NAME, authorStatusLabel } from "@/lib/authorRegistration";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +41,19 @@ export async function GET() {
         : none,
     ]);
     const body = { name: me.name, author: summarizeAuthor({ papers: myPapers, revisions: myRevs, decisions: myDecs }, now) };
+
+    // ---- External author (AIDC 2026): own profile only ------------------------
+    if (me.baseType === "AUTHOR") {
+      const p = await findAuthorProfile(db, me.id);
+      body.externalAuthor = {
+        conference: CONFERENCE_NAME,
+        email: me.email,
+        profile: p ? {
+          phone: p.phone, organization: p.organization, currentStatus: authorStatusLabel(p.current_status),
+          designation: p.designation, location: p.location,
+        } : null,
+      };
+    }
 
     // ---- Reviewer -----------------------------------------------------------
     const myAssigns = await db.query(

@@ -15,6 +15,8 @@
  */
 import crypto from "node:crypto";
 import { makeHarness } from "./lib/test-db.mjs";
+import { createAuthorUser, setPasswordHash } from "../lib/repos/users.mjs";
+import { hashPassword } from "../lib/auth/password.mjs";
 
 const H = makeHarness(process.argv[2] || "http://127.0.0.1:3001");
 const BASE = H.BASE;
@@ -91,9 +93,26 @@ const PERSONAS = ["ADMIN", "EDITOR", "REV1", "REV2", "DESK", "AUTHOR", "OUTSIDER
 async function createPersona(key) {
   const name = `${PREFIX} ${key}`;
   // Throwaway accounts only; ADMIN is a throwaway administrator (never a real one).
-  const u = key === "ADMIN" ? await H.mkAdmin({ name }) : await H.mkUser({ kind: `${RUN}.${key.toLowerCase()}`, name, baseType: "FACULTY" });
+  const u = key === "ADMIN" ? await H.mkAdmin({ name })
+    : key === "AUTHOR" && process.env.E2E_AUTHOR_BASE_TYPE === "AUTHOR" ? await mkExternalAuthor(name)
+    : await H.mkUser({ kind: `${RUN}.${key.toLowerCase()}`, name, baseType: "FACULTY" });
   // Each persona presents its own client IP (separate rate-limit buckets).
   P[key] = { key, email: u.email, name, id: u.id, password: u.password, jar: newJar(), ip: `10.77.${PERSONAS.indexOf(key) + 1}.1` };
+}
+/**
+ * E2E_AUTHOR_BASE_TYPE=AUTHOR runs the whole workflow with the submitting
+ * persona as an external AIDC 2026 AUTHOR account (non-university email),
+ * created exactly as Google activation creates it, plus a password for this run.
+ */
+async function mkExternalAuthor(name) {
+  const email = `rpp.it.${RUN}.extauthor@example-author.org`;
+  const id = await H.db.transaction((tx) => createAuthorUser(tx, {
+    name, email, phone: "+91 90000 00000", organization: "Example Org", current_status: "RESEARCHER", designation: "Researcher", location: "Pune, India",
+  }));
+  H.manifest.users.push(id);
+  const password = `It#${crypto.randomBytes(12).toString("base64url")}`;
+  await setPasswordHash(H.db, id, await hashPassword(password));
+  return { id, email, password };
 }
 async function login(p) {
   const r = await http(p, "POST", "/api/login", { json: { email: p.email, password: p.password } });

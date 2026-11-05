@@ -55,13 +55,18 @@ export default function DashboardPage() {
 
   const a = d.author;
   const firstName = String(d.name || "").split(/[\s@]/)[0];
+  const ext = d.externalAuthor; // only for external AUTHOR accounts (AIDC 2026)
 
   return (
     <>
-      <PageHeader eyebrow={`Overview · ${new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}`}
-        title={`Hello, ${firstName}.`}
-        subtitle="Your submissions, reviews and editorial work at a glance."
+      <PageHeader eyebrow={ext ? `Author dashboard · ${ext.conference}` : `Overview · ${new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}`}
+        title={ext ? `Welcome, ${firstName}.` : `Hello, ${firstName}.`}
+        subtitle={ext
+          ? `Submit your research papers for ${ext.conference} and follow their review here.`
+          : "Your submissions, reviews and editorial work at a glance."}
         action={<Button href="/submit" variant="primary" size="sm">Submit a paper</Button>} />
+
+      {ext && <AuthorProfileSection ext={ext} name={d.name} />}
 
       {/* ---- Author ---- */}
       <Section title="My submissions" action={<Link href="/submissions" className="text-xs font-semibold text-accent hover:underline">View all</Link>}>
@@ -187,10 +192,71 @@ export default function DashboardPage() {
             <KpiCard label="Accounts" value={d.people.total} />
             <KpiCard label="Students" value={d.people.students} />
             <KpiCard label="Faculty" value={d.people.faculty} />
+            <KpiCard label="Authors (AIDC)" value={d.people.authors ?? 0} />
             {Object.entries(d.people.byRole).map(([k, v]) => <KpiCard key={k} label={ROLE_LABEL[k]} value={v} />)}
           </div>
         </Section>
       )}
     </>
+  );
+}
+
+/** External author (AIDC 2026): profile + recent notifications (own papers only). */
+function AuthorProfileSection({ ext, name }) {
+  const [feed, setFeed] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/activity?limit=5", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        setFeed(res.ok ? data.activity || [] : []);
+      } catch { setFeed([]); }
+    })();
+  }, []);
+  const p = ext.profile;
+  const rows = [
+    ["Email", ext.email], ["Phone", p?.phone], ["Organization / Institution", p?.organization],
+    ["Current status", p?.currentStatus], ["Designation / Role / Course", p?.designation], ["Location", p?.location],
+  ];
+  return (
+    <Section title="Author profile" action={<Link href="/account" className="text-xs font-semibold text-accent hover:underline">Account settings</Link>}>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="p-4">
+          <p className="text-sm font-semibold text-ink">{name}</p>
+          <p className="text-xs text-muted">External author · {ext.conference}</p>
+          <dl className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+            {rows.map(([k, v]) => (
+              <div key={k} className="min-w-0"><dt className="text-xs text-muted">{k}</dt><dd className="break-words font-semibold text-ink">{v || "—"}</dd></div>
+            ))}
+          </dl>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button href="/submit" variant="primary" size="sm">Submit paper</Button>
+            <Button href="/submissions" variant="outline" size="sm">My submissions</Button>
+            <Button href="/revisions" variant="outline" size="sm">Revision requests</Button>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-ink">Notifications</p>
+            <Link href="/activity" className="text-xs font-semibold text-accent hover:underline">View all</Link>
+          </div>
+          {feed === null ? <p className="mt-2 text-sm text-muted">Loading…</p> : feed.length === 0 ? (
+            <p className="mt-2 text-sm text-muted">No updates yet. You&apos;ll see submission, review, revision and decision updates for your papers here, and we&apos;ll email you too.</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-line">
+              {feed.map((n) => (
+                <li key={n.id} className="py-2">
+                  <p className="text-sm text-ink">{n.label}{n.decision ? `: ${n.decision}` : ""}</p>
+                  <p className="truncate text-xs text-muted">
+                    {n.paperId ? <Link href={`/submissions/${n.paperId}`} className="hover:underline">{n.paperTitle || "Your paper"}</Link> : n.paperTitle}
+                    {" · "}{fmtDate(n.at)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+    </Section>
   );
 }

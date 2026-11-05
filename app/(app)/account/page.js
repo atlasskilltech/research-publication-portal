@@ -23,7 +23,9 @@ export default async function AccountPage() {
   const user = await findUserById(db, me.id);
   if (!user) redirect("/login");
   const googleLinked = !!(await linkedSubFor(me.id));
-  const googleCapable = isUniversityEmail(user.email);
+  const isAuthor = user.base_type === "AUTHOR"; // external author (AIDC 2026): any verified Google account
+  const googleCapable = isAuthor || isUniversityEmail(user.email);
+  const accountType = isAuthor ? "Author (AIDC 2026)" : user.base_type === "FACULTY" ? "Faculty" : "Student";
 
   return (
     <div className="max-w-2xl">
@@ -33,7 +35,7 @@ export default async function AccountPage() {
         <CardHeader eyebrow="Profile" title={user.name || user.email} />
         <dl className="grid grid-cols-1 gap-3 px-4 pb-5 pt-3 text-sm sm:grid-cols-2 sm:px-5">
           <div><dt className="text-xs text-muted">Email</dt><dd className="break-all font-semibold text-ink">{user.email}</dd></div>
-          <div><dt className="text-xs text-muted">Account type</dt><dd className="font-semibold text-ink">{user.base_type === "FACULTY" ? "Faculty" : "Student"}</dd></div>
+          <div><dt className="text-xs text-muted">Account type</dt><dd className="font-semibold text-ink">{accountType}</dd></div>
         </dl>
       </Card>
 
@@ -41,7 +43,7 @@ export default async function AccountPage() {
         <CardHeader eyebrow="Sign-in methods" title="How you sign in" />
         <ul className="divide-y divide-line px-4 pb-2 pt-2 text-sm sm:px-5">
           <li className="flex items-center justify-between gap-3 py-3">
-            <span className="font-semibold text-ink">Google (ATLAS University account)</span>
+            <span className="font-semibold text-ink">{isAuthor ? "Google (your registered Google account)" : "Google (ATLAS University account)"}</span>
             <span className="text-xs text-muted">
               {googleLinked ? "Linked" : googleCapable ? "Available: use “Sign in with Google”" : "Not available for this address"}
             </span>

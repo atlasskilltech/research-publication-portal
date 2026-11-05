@@ -19,8 +19,16 @@ function GoogleLogo({ className }) {
  * "Sign in with Google" — a plain form POST to /auth/google (works without JS;
  * JS only adds the loading state). The server starts the PKCE flow; the
  * university-domain rule is enforced server-side, never here.
+ *
+ * External authors (AIDC 2026): `intent="author"` activates the pending Author
+ * registration bound to this browser; `intent="author_signin"` is a returning
+ * Author's sign-in (no university account-chooser hint). `label` / `hint`
+ * override the texts. Without these props the button is unchanged.
  */
-export default function GoogleSignInButton({ next = "/dashboard", disabled = false, prominent = false }) {
+export default function GoogleSignInButton({
+  next = "/dashboard", disabled = false, prominent = false, intent = "", label = "Sign in with Google",
+  hint = "Use your @atlasuniversity.edu.in account.",
+}) {
   const [pending, setPending] = useState(false);
 
   // Coming back with the browser Back button (bfcache) must not leave the
@@ -48,6 +56,7 @@ export default function GoogleSignInButton({ next = "/dashboard", disabled = fal
       }}
     >
       <input type="hidden" name="next" value={next} />
+      {intent && <input type="hidden" name="intent" value={intent} />}
       <button
         type="submit"
         disabled={isDisabled}
@@ -69,9 +78,9 @@ export default function GoogleSignInButton({ next = "/dashboard", disabled = fal
         ) : (
           <GoogleLogo className="h-5 w-5 shrink-0" />
         )}
-        <span>{pending ? "Redirecting to Google…" : "Sign in with Google"}</span>
+        <span>{pending ? "Redirecting to Google…" : label}</span>
       </button>
-      <p className="mt-2 text-center text-xs text-muted">Use your @atlasuniversity.edu.in account.</p>
+      {hint && <p className="mt-2 text-center text-xs text-muted">{hint}</p>}
     </form>
   );
 }

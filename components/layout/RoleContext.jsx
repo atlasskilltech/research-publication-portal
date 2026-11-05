@@ -9,6 +9,7 @@ const STORAGE_KEY = "rpp.role";
 /** Map the authenticated session to a starting role key. */
 function roleFromSession(sessionUser) {
   if (!sessionUser) return "student";
+  if (sessionUser.baseType === "AUTHOR") return "author"; // never admin (enforced server-side)
   if (sessionUser.isAdmin) return "administrator";
   return sessionUser.baseType === "FACULTY" ? "faculty" : "student";
 }

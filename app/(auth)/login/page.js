@@ -6,7 +6,8 @@ import FragmentScrubber from "@/components/auth/FragmentScrubber";
 import { BRAND } from "@/lib/constants";
 import { safeNextPath } from "@/lib/authFlow";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
-import { GOOGLE_NOTICES } from "@/lib/oauthPolicy";
+import { GOOGLE_NOTICES } from "@/lib/authNotices";
+import { CONFERENCE_NAME } from "@/lib/authorRegistration";
 
 const STAGES = [
   ["01", "Shortlist"],
@@ -102,6 +103,19 @@ export default async function LoginPage({ searchParams }) {
 
           <div className="mt-6">
             <GoogleSignInButton next={next} prominent />
+          </div>
+
+          {/* External authors (AIDC 2026): any verified Google account; no ATLAS-domain hint. */}
+          <div className="mt-4 rounded-xl border border-line bg-white p-4">
+            <p className="mb-2 text-xs text-muted">
+              <b className="text-ink">External author?</b> Registered for {CONFERENCE_NAME}
+            </p>
+            <GoogleSignInButton next={next} intent="author_signin" label="Author sign-in with Google"
+              hint="Use the Google account you registered with." />
+            <p className="mt-2 text-center text-xs text-muted">
+              Not registered yet?{" "}
+              <Link href="/register?type=author" className="font-semibold text-accent hover:underline">Register as an Author →</Link>
+            </p>
           </div>
 
           <div className="mt-6 flex items-center gap-3" role="separator" aria-label="or">
