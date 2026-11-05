@@ -151,131 +151,130 @@ async function cb(w, { claims = {}, reg = null } = {}) {
 }
 const reg = (w, email, id = `R-${Math.random().toString(36).slice(2)}`) => w.addPending({ id, email, name: "Priya Menon" }).id;
 
-section("Google: external Author activation (verified email must match the form)");
+// The ONE Google button: every case below goes through the same callback; the
+// only difference between flows is whether this browser held a pending
+// Author registration (flow.authorRegistrationId).
+
+section("Unified Google sign-in: existing accounts keep exactly their stored role");
+{
+  const w = world();
+  w.add({ id: "S1", email: "student@atlasuniversity.edu.in", base_type: "STUDENT" });
+  w.add({ id: "F1", email: "faculty@atlasuniversity.edu.in", base_type: "FACULTY", roles: ["PEER_REVIEWER"] });
+  w.add({ id: "AD", email: "admin@atlasuniversity.edu.in", base_type: "FACULTY", is_admin: true, roles: ["ADMINISTRATOR"] });
+  w.add({ id: "ED", email: "editor@atlasuniversity.edu.in", base_type: "FACULTY", roles: ["EDITOR"] });
+  w.add({ id: "X1", email: "sf48116@gmail.com", base_type: "STUDENT" }); // existing user with a personal Gmail
+  w.add({ id: "A1", email: "priya@gmail.com", base_type: "AUTHOR" });
+  const before = JSON.stringify([...w.users.values()].map((u) => [u.id, u.base_type, u.is_admin, u.roles]));
+
+  const s = await cb(w, { claims: { email: "student@atlasuniversity.edu.in", sub: "G-s" } });
+  check("1. existing Student, ATLAS Google account → signed in as that Student", s.outcome === "ok" && s.userId === "S1" && !s.created);
+  const f = await cb(w, { claims: { email: "faculty@atlasuniversity.edu.in", sub: "G-f" } });
+  check("2. existing Faculty, ATLAS Google account → signed in as that Faculty", f.outcome === "ok" && f.userId === "F1");
+  const x = await cb(w, { claims: { email: "sf48116@gmail.com", hd: undefined, sub: "G-x" } });
+  check("3. existing user with a personal Gmail (sf48116@gmail.com) → signed in, Google linked", x.outcome === "ok" && x.userId === "X1" && w.identities.get("G-x") === "X1");
+  const a = await cb(w, { claims: { email: "priya@gmail.com", hd: undefined, sub: "G-p" } });
+  check("4. existing Author, verified Gmail → signed in (same button, no re-registration)", a.outcome === "ok" && a.userId === "A1" && !a.created);
+  const ad = await cb(w, { claims: { email: "admin@atlasuniversity.edu.in", sub: "G-ad" } });
+  const ed = await cb(w, { claims: { email: "editor@atlasuniversity.edu.in", sub: "G-ed" } });
+  check("8. existing Admin and Editor → signed in to their own accounts", ad.userId === "AD" && ed.userId === "ED");
+  check("no base type, admin flag or role changed by any sign-in", JSON.stringify([...w.users.values()].map((u) => [u.id, u.base_type, u.is_admin, u.roles])) === before);
+  check("no account created by any of these sign-ins", w.log.created.length === 0 && w.users.size === 6);
+
+  const again = await cb(w, { claims: { email: "priya@gmail.com", hd: undefined, sub: "G-p" } });
+  check("later sign-ins match by the linked Google sub", again.userId === "A1");
+  const other = await cb(w, { claims: { email: "priya@gmail.com", hd: undefined, sub: "G-OTHER" } });
+  check("same email from a DIFFERENT Google account → refused (identity_mismatch)", other.outcome === "rejected:identity_mismatch");
+  w.add({ id: "OFF", email: "off@gmail.com", base_type: "STUDENT", status: "DISABLED" });
+  const off = await cb(w, { claims: { email: "off@gmail.com", hd: undefined } });
+  check("disabled account → refused", off.outcome === "rejected:disabled");
+  const unv = await cb(w, { claims: { email: "student@atlasuniversity.edu.in", email_verified: false } });
+  check("unverified Google email → refused", unv.outcome === "rejected:unverified" && unv.redirect === "/login?notice=google_unverified");
+  const unvStr = await cb(w, { claims: { email: "priya@gmail.com", hd: undefined, sub: "G-p", email_verified: "true" } });
+  check("email_verified as the string \"true\" → refused", unvStr.outcome === "rejected:unverified");
+  const hd = await cb(w, { claims: { email: "student@atlasuniversity.edu.in", hd: undefined } });
+  check("@atlasuniversity.edu.in address NOT from the ATLAS Workspace (no hd) → refused", hd.outcome === "rejected:hd_mismatch");
+  const hd2 = await cb(w, { claims: { email: "student@atlasuniversity.edu.in", hd: "gmail.com" } });
+  check("@atlasuniversity.edu.in address with another hd → refused", hd2.outcome === "rejected:hd_mismatch");
+}
+
+section("Unified Google sign-in: new external Author (pending registration)");
 {
   const w = world();
   const r1 = await cb(w, { claims: { email: "priya.menon@gmail.com", hd: undefined, sub: "G-gmail" }, reg: reg(w, "priya.menon@gmail.com") });
-  check("external Gmail account + matching registration → AUTHOR created, signed in, → /dashboard", r1.outcome === "ok" && r1.created === true && r1.redirect === "/dashboard" && w.log.sessions.includes(r1.userId));
+  check("5. new external user, Author form + Gmail → AUTHOR created, signed in, → /dashboard", r1.outcome === "ok" && r1.created === true && r1.redirect === "/dashboard" && w.log.sessions.includes(r1.userId));
   const u1 = w.users.get(r1.userId);
   check("created account is AUTHOR, not admin, no roles", u1.base_type === "AUTHOR" && u1.is_admin === false && (u1.roles || []).length === 0);
-  check("Google identity linked to the new account", w.identities.get("G-gmail") === r1.userId);
-  check("exactly one confirmation email, after Google authentication", w.log.emails.length === 1 && w.log.emails[0].email === "priya.menon@gmail.com");
-  check("pending registration consumed (single use)", w.pending.size === 0);
-
+  check("Google identity linked; exactly one confirmation email; pending registration consumed", w.identities.get("G-gmail") === r1.userId && w.log.emails.length === 1 && w.pending.size === 0);
   const r2 = await cb(w, { claims: { email: "prof.rao@iitb.ac.in", hd: "iitb.ac.in", sub: "G-iitb" }, reg: reg(w, "prof.rao@iitb.ac.in") });
-  check("external institutional Google Workspace account (IIT) → AUTHOR created", r2.outcome === "ok" && r2.created && w.users.get(r2.userId).base_type === "AUTHOR");
-  const r2b = await cb(w, { claims: { email: "k.iyer@nitk.edu.in", hd: "nitk.edu.in", sub: "G-nit" }, reg: reg(w, "k.iyer@nitk.edu.in") });
-  check("external institutional Google account (NIT) → AUTHOR created", r2b.outcome === "ok" && r2b.created);
+  check("IIT Google Workspace account → AUTHOR created", r2.outcome === "ok" && r2.created);
+  const r3 = await cb(w, { claims: { email: "k.iyer@nitk.edu.in", hd: "nitk.edu.in", sub: "G-nit" }, reg: reg(w, "k.iyer@nitk.edu.in") });
+  check("NIT Google account → AUTHOR created", r3.outcome === "ok" && r3.created);
+  const r4 = await cb(w, { claims: { email: "new.author@atlasuniversity.edu.in", sub: "G-uni" }, reg: reg(w, "new.author@atlasuniversity.edu.in") });
+  check("ATLAS Google account registering as Author → AUTHOR created", r4.outcome === "ok" && r4.created && w.users.get(r4.userId).base_type === "AUTHOR");
 
-  const r3 = await cb(w, { claims: { email: "new.author@atlasuniversity.edu.in", sub: "G-uni" }, reg: reg(w, "new.author@atlasuniversity.edu.in") });
-  check("university Google account registering as Author → AUTHOR created", r3.outcome === "ok" && r3.created && w.users.get(r3.userId).base_type === "AUTHOR");
-
-  const mismatchReg = reg(w, "registered@gmail.com");
+  const mm = reg(w, "registered@gmail.com");
   const n = w.users.size;
-  const r4 = await cb(w, { claims: { email: "someone.else@gmail.com", hd: undefined }, reg: mismatchReg });
-  check("Google email ≠ registered email → refused, back to the Author form", r4.outcome === "rejected:author_email_mismatch" && r4.redirect === "/register?type=author&notice=author_email_mismatch" && w.users.size === n);
-  check("…pending registration kept so the user can retry with the right account", w.pending.has(mismatchReg));
-  const r4b = await cb(w, { claims: { email: "Registered@GMAIL.com", hd: undefined }, reg: mismatchReg });
-  check("same email in different letter case → treated as the same address (match)", r4b.outcome === "ok" && r4b.created);
-  const r4c = await cb(w, { claims: { email: "registered@gmail.com.evil.io", hd: undefined }, reg: reg(w, "registered2@gmail.com") });
-  check("look-alike of the registered email → refused", r4c.outcome === "rejected:author_email_mismatch");
-
-  const r5 = await cb(w, { claims: { email: "unverified@gmail.com", hd: undefined, email_verified: false }, reg: reg(w, "unverified@gmail.com") });
-  check("unverified Google email → refused (no account, no session)", r5.outcome === "rejected:external_unverified" && /google_external_unverified/.test(r5.redirect) && ![...w.users.values()].some((u) => u.email === "unverified@gmail.com"));
-  const r5b = await cb(w, { claims: { email: "unverified2@gmail.com", hd: undefined, email_verified: "true" }, reg: reg(w, "unverified2@gmail.com") });
-  check("email_verified as the string \"true\" → refused", r5b.outcome === "rejected:external_unverified");
-
+  const r5 = await cb(w, { claims: { email: "someone.else@gmail.com", hd: undefined }, reg: mm });
+  check("6. Google email ≠ registration email → refused with the mismatch message, no account", r5.outcome === "rejected:author_email_mismatch" && r5.redirect === "/register?type=author&notice=author_email_mismatch" && w.users.size === n);
+  check("…mismatch message is clear", /does not match the email address on your Author registration/.test(GOOGLE_NOTICES.author_email_mismatch));
+  check("…pending registration kept so the user can retry", w.pending.has(mm));
+  const r6 = await cb(w, { claims: { email: "Registered@GMAIL.com", hd: undefined }, reg: mm });
+  check("same email in different letter case → match", r6.outcome === "ok" && r6.created);
+  const r7 = await cb(w, { claims: { email: "registered@gmail.com.evil.io", hd: undefined }, reg: reg(w, "registered2@gmail.com") });
+  check("look-alike of the registered email → refused", r7.outcome === "rejected:author_email_mismatch");
+  const r8 = await cb(w, { claims: { email: "unverified@gmail.com", hd: undefined, email_verified: false }, reg: reg(w, "unverified@gmail.com") });
+  check("unverified Google email with a matching registration → refused, no account", r8.outcome === "rejected:unverified" && ![...w.users.values()].some((u) => u.email === "unverified@gmail.com"));
   const exp = reg(w, "late@gmail.com"); w.pending.get(exp).expired = true;
-  const r6 = await cb(w, { claims: { email: "late@gmail.com", hd: undefined }, reg: exp });
-  check("expired pending registration → refused (fill in the form again)", r6.outcome === "rejected:author_registration_expired" && /author_registration_expired/.test(r6.redirect));
-  const r6b = await cb(w, { claims: { email: "ghost@gmail.com", hd: undefined }, reg: "R-does-not-exist" });
-  check("unknown / already used registration id → refused", r6b.outcome === "rejected:author_registration_expired");
-
-  // Replay of an already-activated registration (pending row consumed).
+  const r9 = await cb(w, { claims: { email: "late@gmail.com", hd: undefined }, reg: exp });
+  check("expired pending registration → refused (fill in the form again)", r9.outcome === "rejected:author_registration_expired");
+  const r10 = await cb(w, { claims: { email: "ghost@gmail.com", hd: undefined }, reg: "R-does-not-exist" });
+  check("unknown / already used registration id → refused", r10.outcome === "rejected:author_registration_expired");
   const once = reg(w, "once@gmail.com");
   const ok1 = await cb(w, { claims: { email: "once@gmail.com", hd: undefined, sub: "G-once" }, reg: once });
   const again = await cb(w, { claims: { email: "once@gmail.com", hd: undefined, sub: "G-once" }, reg: once });
-  check("activation is single use: re-using the registration id → refused, no second account", ok1.created && again.outcome === "rejected:author_registration_expired" && [...w.users.values()].filter((u) => u.email === "once@gmail.com").length === 1);
+  check("re-using a consumed registration → normal sign-in to the SAME account, never a second account", ok1.created && again.outcome === "ok" && !again.created && again.userId === ok1.userId && [...w.users.values()].filter((u) => u.email === "once@gmail.com").length === 1);
 }
 
-section("Google: unregistered accounts never get an Author account");
+section("Unified Google sign-in: unregistered users never get an account");
 {
   const w = world();
-  const r = await cb(w, { claims: { email: "stranger@gmail.com", hd: undefined } });
-  check("unregistered Gmail (no Author form) → refused, no account, no session", r.outcome === "rejected:external_not_registered" && w.users.size === 0 && w.log.sessions.length === 0);
-  check("…user is told to complete the Author registration form", /Author registration form/.test(GOOGLE_NOTICES[noticeForReason("external_not_registered")]));
-  const r2 = await cb(w, { claims: { email: "stranger@iitb.ac.in", hd: "iitb.ac.in" } });
-  check("unregistered institutional Google account → refused, no account", r2.outcome === "rejected:external_not_registered" && w.users.size === 0);
-  const r3 = await cb(w, { claims: { email: "newbie@atlasuniversity.edu.in" } });
-  check("unregistered university account → refused exactly as before (google_not_registered)", r3.outcome === "rejected:not_registered" && r3.redirect === "/login?notice=google_not_registered" && w.users.size === 0);
+  for (const [label, claims] of [
+    ["Gmail", { email: "stranger@gmail.com", hd: undefined }],
+    ["IIT Workspace", { email: "stranger@iitb.ac.in", hd: "iitb.ac.in" }],
+    ["ATLAS Workspace", { email: "newbie@atlasuniversity.edu.in" }],
+  ]) {
+    const r = await cb(w, { claims });
+    check(`7. unregistered ${label} account (no Author form) → refused, no account, no session`, r.outcome === "rejected:not_registered" && r.redirect === "/login?notice=google_not_registered" && w.users.size === 0 && w.log.sessions.length === 0);
+  }
+  check("…message tells external authors to complete the Author registration form", /Author registration form/.test(GOOGLE_NOTICES[noticeForReason("not_registered")]));
 }
 
-section("Google: returning Authors (existing AUTHOR accounts)");
-{
-  const w = world();
-  w.add({ id: "A1", email: "priya@gmail.com", base_type: "AUTHOR" });
-  const r = await cb(w, { claims: { email: "priya@gmail.com", hd: undefined, sub: "G-p" } });
-  check("returning Author with Gmail → signed in (first use links the Google sub)", r.outcome === "ok" && r.userId === "A1" && w.identities.get("G-p") === "A1" && !r.created);
-  const r2 = await cb(w, { claims: { email: "priya@gmail.com", hd: undefined, sub: "G-p" } });
-  check("later sign-ins match by linked sub", r2.outcome === "ok" && r2.userId === "A1");
-  const r3 = await cb(w, { claims: { email: "priya@gmail.com", hd: undefined, sub: "G-OTHER" } });
-  check("same email from a DIFFERENT Google account → refused", r3.outcome === "rejected:identity_mismatch");
-  w.add({ id: "A2", email: "off@gmail.com", base_type: "AUTHOR", status: "DISABLED" });
-  const r4 = await cb(w, { claims: { email: "off@gmail.com", hd: undefined } });
-  check("disabled Author → refused", r4.outcome === "rejected:disabled");
-  const r5 = await cb(w, { claims: { email: "priya@gmail.com", hd: undefined, sub: "G-p", email_verified: false } });
-  check("returning Author whose Google email became unverified → refused", r5.outcome === "rejected:external_unverified");
-}
-
-section("Existing rules unchanged: Student / Faculty / sf48116@gmail.com exception");
+section("A pending Author registration never converts or re-roles an existing account");
 {
   const w = world();
   w.add({ id: "S1", email: "student@atlasuniversity.edu.in", base_type: "STUDENT" });
-  w.add({ id: "F1", email: "faculty@atlasuniversity.edu.in", base_type: "FACULTY" });
-  w.add({ id: "X1", email: "sf48116@gmail.com", base_type: "STUDENT" }); // the intentional testing exception
-  const s = await cb(w, { claims: { email: "student@atlasuniversity.edu.in", sub: "G-s" } });
-  check("Student with verified @atlasuniversity.edu.in → signed in", s.outcome === "ok" && s.userId === "S1" && w.users.get("S1").base_type === "STUDENT");
-  const f = await cb(w, { claims: { email: "faculty@atlasuniversity.edu.in", sub: "G-f" } });
-  check("Faculty with verified @atlasuniversity.edu.in → signed in", f.outcome === "ok" && f.userId === "F1" && w.users.get("F1").base_type === "FACULTY");
-  const su = await cb(w, { claims: { email: "student@atlasuniversity.edu.in", email_verified: false } });
-  check("Student with UNVERIFIED university email → refused (google_unverified, as before)", su.outcome === "rejected:unverified" && su.redirect === "/login?notice=google_unverified");
-  const hd = await cb(w, { claims: { email: "student@atlasuniversity.edu.in", hd: undefined } });
-  check("university email without Workspace hd → refused (hd_mismatch, as before)", hd.outcome === "rejected:hd_mismatch");
-  const x = await cb(w, { claims: { email: "sf48116@gmail.com", hd: undefined, sub: "G-x" } });
-  check("sf48116@gmail.com (STUDENT, the testing exception) → Google refused exactly as before (google_domain)", x.outcome === "rejected:domain" && x.redirect === "/login?notice=google_domain" && w.log.sessions.every((id) => id !== "X1"));
-  const g = await cb(w, { claims: { email: "sf48116@gmail.com", hd: undefined, sub: "G-x" }, reg: reg(w, "sf48116@gmail.com") });
-  check("…and the Author flow can't convert that STUDENT account into an AUTHOR", g.outcome === "rejected:domain" && w.users.get("X1").base_type === "STUDENT" && w.log.created.length === 0);
-  check("validateIdTokenClaims without allowExternal is still university-only (gmail → domain)",
-    validateIdTokenClaims(await verifyIdTokenSignature(await idToken({ email: "a@gmail.com", hd: undefined }), JWKS, CLIENT_ID), { clientId: CLIENT_ID, nonce: "N0NCE", nowS: NOW }).reason === "domain");
-}
-
-section("Role can never change through Google Sign-In");
-{
-  const w = world();
-  w.add({ id: "S1", email: "student@atlasuniversity.edu.in", base_type: "STUDENT" });
-  // A pending Author registration for an email that (by a race) already has a Student account.
-  const r = await cb(w, { claims: { email: "student@atlasuniversity.edu.in", sub: "G-s" }, reg: reg(w, "student@atlasuniversity.edu.in") });
-  check("existing STUDENT + Author flow → normal sign-in, account stays STUDENT, no AUTHOR created", r.outcome === "ok" && !r.created && r.userId === "S1" && w.users.get("S1").base_type === "STUDENT" && w.log.created.length === 0);
   w.add({ id: "AD", email: "admin@atlasuniversity.edu.in", base_type: "FACULTY", is_admin: true });
-  const r2 = await cb(w, { claims: { email: "admin@atlasuniversity.edu.in", sub: "G-ad" }, reg: reg(w, "admin@atlasuniversity.edu.in") });
-  check("existing admin + Author flow → admin flag untouched, no AUTHOR created", r2.outcome === "ok" && w.users.get("AD").is_admin === true && w.users.get("AD").base_type === "FACULTY" && w.log.created.length === 0);
-  w.add({ id: "A9", email: "auth9@gmail.com", base_type: "AUTHOR" });
-  const r3 = await cb(w, { claims: { email: "auth9@gmail.com", hd: undefined, sub: "G-9" } });
-  check("existing AUTHOR sign-in → stays AUTHOR, not admin", r3.outcome === "ok" && w.users.get("A9").base_type === "AUTHOR" && w.users.get("A9").is_admin === false);
-  const dec = decideAccount({ claims: { sub: "z", email: "x@gmail.com", external: true }, identity: null, byEmail: { id: "F", email: "x@gmail.com", status: "ACTIVE", base_type: "FACULTY" } });
-  check("decideAccount: external email + non-AUTHOR account → domain", dec.reason === "domain");
+  w.add({ id: "X1", email: "sf48116@gmail.com", base_type: "STUDENT" });
+  const r1 = await cb(w, { claims: { email: "student@atlasuniversity.edu.in", sub: "G-s" }, reg: reg(w, "student@atlasuniversity.edu.in") });
+  check("existing STUDENT + matching pending registration → signs in as STUDENT, no AUTHOR created", r1.outcome === "ok" && !r1.created && w.users.get("S1").base_type === "STUDENT");
+  const r2 = await cb(w, { claims: { email: "admin@atlasuniversity.edu.in", sub: "G-ad" }, reg: reg(w, "someone@gmail.com") });
+  check("existing admin with a stale pending registration for another email → admin sign-in, flag untouched", r2.outcome === "ok" && r2.userId === "AD" && w.users.get("AD").is_admin === true);
+  const r3 = await cb(w, { claims: { email: "sf48116@gmail.com", hd: undefined, sub: "G-x" }, reg: reg(w, "sf48116@gmail.com") });
+  check("sf48116@gmail.com + Author form → still STUDENT (not converted)", r3.outcome === "ok" && w.users.get("X1").base_type === "STUDENT");
+  check("no AUTHOR account created in any of these", w.log.created.length === 0);
+  const dec = decideAccount({ claims: { sub: "z", email: "x@gmail.com" }, identity: null, byEmail: { id: "F", email: "x@gmail.com", status: "ACTIVE", base_type: "FACULTY", is_admin: false } });
+  check("decideAccount returns only the user id (role is never decided or changed here)", dec.ok && JSON.stringify(Object.keys(dec).sort()) === JSON.stringify(["link", "ok", "userId", "verifyEmail"]));
 }
 
 section("Authorize URL (account-chooser hints only)");
 {
   const base = { clientId: CLIENT_ID, redirectUri: "https://portal.example/auth/callback", state: "s", nonce: "n", codeChallenge: "c" };
   const def = new URL(buildAuthorizeUrl(base));
-  check("default (Student/Faculty) still sends hd=atlasuniversity.edu.in", def.searchParams.get("hd") === GOOGLE_ALLOWED_DOMAIN && !def.searchParams.has("login_hint"));
-  const ext = new URL(buildAuthorizeUrl({ ...base, external: true, loginHint: "priya@gmail.com" }));
-  check("Author flow omits hd and pre-selects the registered email", !ext.searchParams.has("hd") && ext.searchParams.get("login_hint") === "priya@gmail.com");
-  check("PKCE S256 + nonce + state kept in the Author flow", ext.searchParams.get("code_challenge_method") === "S256" && ext.searchParams.get("nonce") === "n" && ext.searchParams.get("state") === "s");
-  const bad = new URL(buildAuthorizeUrl({ ...base, external: true, loginHint: "not an email\n" }));
-  check("malformed login_hint is dropped", !bad.searchParams.has("login_hint"));
+  check("one flow for everyone: no hd hint, no login_hint by default", !def.searchParams.has("hd") && !def.searchParams.has("login_hint"));
+  const ext = new URL(buildAuthorizeUrl({ ...base, loginHint: "priya@gmail.com" }));
+  check("with a pending registration: login_hint = registered email", ext.searchParams.get("login_hint") === "priya@gmail.com");
+  check("PKCE S256 + nonce + state kept", ext.searchParams.get("code_challenge_method") === "S256" && ext.searchParams.get("nonce") === "n" && ext.searchParams.get("state") === "s");
+  check("malformed login_hint is dropped", !new URL(buildAuthorizeUrl({ ...base, loginHint: "not an email\n" })).searchParams.has("login_hint"));
   check("isPlainEmail rejects look-alikes / whitespace", !isPlainEmail("a@b") && !isPlainEmail("a b@c.com") && !isPlainEmail("a@b@c.com") && isPlainEmail("a@b.co"));
 }
 
@@ -293,10 +292,10 @@ section("SendGrid email: Author confirmation (existing mail pipeline)");
   check("HTML escapes the name", (await (async () => { sent.length = 0; await deliverAuthorRegistrationConfirmed({ email: "x@y.com", name: "<b>x</b>", userId: "A2" }, { sendEmail, siteUrl: "https://r.example" }); return !sent[0].html.includes("<b>x</b>"); })()));
   sent.length = 0;
   await deliverSignInInstructions({ email: "priya@gmail.com", userId: "A1", external: true }, { sendEmail, siteUrl: "https://r.example", isUniversityEmail: () => false });
-  check("sign-in reminder for an Author points to Google (not the password-only text)", /Author sign-in with Google/.test(sent[0].text) && !/can't use Google sign-in/.test(sent[0].text));
+  check("sign-in reminder for a non-ATLAS address points to Google (not the password-only text)", /Sign in with Google/.test(sent[0].text) && /Google account for this email/.test(sent[0].text) && !/can't use Google sign-in/.test(sent[0].text));
   sent.length = 0;
-  await deliverSignInInstructions({ email: "sf48116@gmail.com", userId: "X1" }, { sendEmail, siteUrl: "https://r.example", isUniversityEmail: () => false });
-  check("sign-in reminder for the sf48116 Student exception unchanged (password route)", /can't use Google sign-in/.test(sent[0].text));
+  await deliverSignInInstructions({ email: "sf48116@gmail.com", userId: "X1", external: true }, { sendEmail, siteUrl: "https://r.example", isUniversityEmail: () => true });
+  check("sign-in reminder for sf48116@gmail.com now points to Google too", /Sign in with Google/.test(sent[0].text) && !/can't use Google sign-in/.test(sent[0].text));
 }
 
 section("Branding");

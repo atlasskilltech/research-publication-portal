@@ -68,10 +68,10 @@ export default function AuthorRegisterForm({ notice = "" }) {
     return (
       <div className="mt-5">
         <div className="rounded-xl border border-ok/30 bg-ok-soft px-4 py-3 text-sm text-ink" role="status">
-          Your details are saved. To activate your Author account, continue with Google using <b className="break-all">{pendingEmail}</b>.
+          Your details are saved. To activate your Author account, sign in with Google using <b className="break-all">{pendingEmail}</b>.
         </div>
         <div className="mt-5">
-          <GoogleSignInButton intent="author" prominent label="Continue with Google"
+          <GoogleSignInButton prominent
             hint={`Choose the Google account for ${pendingEmail}. Any verified Google account works (Gmail, university or company).`} />
         </div>
         <p className="mt-4 text-xs text-muted">
@@ -89,8 +89,7 @@ export default function AuthorRegisterForm({ notice = "" }) {
 
       {showRetry && (
         <div className="mb-6 rounded-xl border border-line bg-white p-4">
-          <GoogleSignInButton intent="author" prominent label="Continue with Google"
-            hint="Use the same email address you entered on the Author form." />
+          <GoogleSignInButton prominent hint="Use the same email address you entered on the Author form." />
           <button type="button" onClick={() => setShowRetry(false)} className="mt-3 w-full text-center text-xs font-semibold text-accent hover:underline">
             Or fill in the Author form again
           </button>
@@ -115,11 +114,11 @@ export default function AuthorRegisterForm({ notice = "" }) {
           )}
 
           <p className="text-xs text-muted">
-            Next, you&apos;ll continue with Google to verify your email. Your Author account lets you submit papers for {CONFERENCE_NAME} and follow their review.
+            Next, you&apos;ll sign in with Google to verify your email. Your Author account lets you submit papers for {CONFERENCE_NAME} and follow their review.
           </p>
 
           <Button type="submit" variant="primary" size="lg" full disabled={loading}>
-            {loading ? "Saving…" : "Continue to Google sign-in →"}
+            {loading ? "Saving…" : "Save and continue →"}
           </Button>
         </form>
       )}

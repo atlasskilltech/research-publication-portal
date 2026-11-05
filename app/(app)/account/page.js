@@ -7,7 +7,7 @@ import { getSessionUser } from "@/lib/session";
 import { db } from "@/lib/db";
 import { findUserById } from "@/lib/repos/users.mjs";
 import { linkedSubFor } from "@/lib/googleAuth";
-import { isUniversityEmail } from "@/lib/oauthPolicy";
+import { isPlainEmail } from "@/lib/oauthPolicy";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Account settings — Research Publication Portal", robots: { index: false } };
@@ -23,8 +23,8 @@ export default async function AccountPage() {
   const user = await findUserById(db, me.id);
   if (!user) redirect("/login");
   const googleLinked = !!(await linkedSubFor(me.id));
-  const isAuthor = user.base_type === "AUTHOR"; // external author (AIDC 2026): any verified Google account
-  const googleCapable = isAuthor || isUniversityEmail(user.email);
+  const isAuthor = user.base_type === "AUTHOR"; // external author (AIDC 2026)
+  const googleCapable = isPlainEmail(user.email); // any verified Google account with this email
   const accountType = isAuthor ? "Author (AIDC 2026)" : user.base_type === "FACULTY" ? "Faculty" : "Student";
 
   return (
@@ -43,7 +43,7 @@ export default async function AccountPage() {
         <CardHeader eyebrow="Sign-in methods" title="How you sign in" />
         <ul className="divide-y divide-line px-4 pb-2 pt-2 text-sm sm:px-5">
           <li className="flex items-center justify-between gap-3 py-3">
-            <span className="font-semibold text-ink">{isAuthor ? "Google (your registered Google account)" : "Google (ATLAS University account)"}</span>
+            <span className="font-semibold text-ink">Google (the Google account for this email)</span>
             <span className="text-xs text-muted">
               {googleLinked ? "Linked" : googleCapable ? "Available: use “Sign in with Google”" : "Not available for this address"}
             </span>

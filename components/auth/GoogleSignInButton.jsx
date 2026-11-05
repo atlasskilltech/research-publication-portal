@@ -16,18 +16,16 @@ function GoogleLogo({ className }) {
 }
 
 /**
- * "Sign in with Google" — a plain form POST to /auth/google (works without JS;
- * JS only adds the loading state). The server starts the PKCE flow; the
- * university-domain rule is enforced server-side, never here.
- *
- * External authors (AIDC 2026): `intent="author"` activates the pending Author
- * registration bound to this browser; `intent="author_signin"` is a returning
- * Author's sign-in (no university account-chooser hint). `label` / `hint`
- * override the texts. Without these props the button is unchanged.
+ * "Sign in with Google" — the ONE Google button for every role. A plain form
+ * POST to /auth/google (works without JS; JS only adds the loading state).
+ * The server starts the PKCE flow and decides the account and role from the
+ * verified Google identity — nothing here selects a role. A pending Author
+ * registration in this browser is picked up server-side from its httpOnly
+ * cookie, so the Author form uses this same button.
  */
 export default function GoogleSignInButton({
-  next = "/dashboard", disabled = false, prominent = false, intent = "", label = "Sign in with Google",
-  hint = "Use your @atlasuniversity.edu.in account.",
+  next = "/dashboard", disabled = false, prominent = false, label = "Sign in with Google",
+  hint = "Students, faculty, staff and registered authors all use this button.",
 }) {
   const [pending, setPending] = useState(false);
 
@@ -56,7 +54,6 @@ export default function GoogleSignInButton({
       }}
     >
       <input type="hidden" name="next" value={next} />
-      {intent && <input type="hidden" name="intent" value={intent} />}
       <button
         type="submit"
         disabled={isDisabled}
