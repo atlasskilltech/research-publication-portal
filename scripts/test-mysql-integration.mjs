@@ -100,7 +100,7 @@ try {
   const engines = await db.query("SELECT table_name AS n, engine AS e, table_collation AS c FROM information_schema.tables WHERE table_schema = DATABASE()");
   check("every table is InnoDB + utf8mb4", engines.length >= 18 && engines.every((t) => t.e === "InnoDB" && /^utf8mb4/.test(t.c)), engines.filter((t) => t.e !== "InnoDB").map((t) => t.n).join());
   const fks = Number((await db.one("SELECT COUNT(*) AS n FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE()")).n);
-  check("all 32 foreign keys created (5 auth, 18 workflow, 9 publication)", fks === 32, `${fks}`);
+  check("all 33 foreign keys created (5 auth, 18 workflow, 9 publication, 1 author profile)", fks === 33, `${fks}`);
   const when = new Date("2026-03-04T05:06:07.089Z");
   await db.exec(`INSERT INTO \`${T.oauthStates}\` (state_hash, nonce, code_verifier, next_path, expires_at) VALUES (?, 'n', 'v', '/', ?)`, ["0".repeat(64), when]);
   const rt = await db.one(`SELECT expires_at AS d, created_at AS c, CAST(? AS DATE) AS dd FROM \`${T.oauthStates}\` WHERE state_hash = ?`, ["2026-03-04", "0".repeat(64)]);

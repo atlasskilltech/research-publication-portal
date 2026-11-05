@@ -228,9 +228,10 @@ section("Google Sign-In for registered users");
   const unreg = await googleSignIn(P, "stranger@atlasuniversity.edu.in");
   check("unregistered university account → rejected, no account created", unreg.outcome === "rejected:not_registered" && /google_not_registered/.test(unreg.redirect) && P.users.size === n && !unreg.session);
   const gmail = await googleSignIn(P, "asha.personal@gmail.com", { hd: undefined });
-  check("non-university Google account → rejected", gmail.outcome === "rejected:domain" && /google_domain/.test(gmail.redirect));
+  // AIDC 2026: unregistered external accounts are still refused (no account, no session).
+  check("non-university Google account (unregistered) → rejected", gmail.outcome === "rejected:external_not_registered" && /google_external_not_registered/.test(gmail.redirect) && P.users.size === n && !gmail.session);
   const lookalike = await googleSignIn(P, "asha@atlasuniversity.edu.in.evil.com");
-  check("look-alike domain → rejected", lookalike.outcome === "rejected:domain");
+  check("look-alike domain (unregistered) → rejected, no account", lookalike.outcome.startsWith("rejected:") && P.users.size === n && !lookalike.session);
   const unverified = await googleSignIn(P, "rao@atlasuniversity.edu.in", { email_verified: false });
   check("unverified Google email → rejected", unverified.outcome === "rejected:unverified");
   const disabledU = P.add({ name: "Off", email: "off@atlasuniversity.edu.in", base_type: "STUDENT", status: "DISABLED" });

@@ -10,7 +10,7 @@ import Modal from "@/components/ui/Modal";
 import Spinner from "@/components/ui/Spinner";
 import { cn } from "@/lib/cn";
 
-const FILTERS = ["ALL", "STUDENT", "FACULTY", "ADMIN", "DISABLED"];
+const FILTERS = ["ALL", "STUDENT", "FACULTY", "AUTHOR", "ADMIN", "DISABLED"];
 // Additional assignable roles (base type Student/Faculty is separate).
 const ROLE_DEFS = [
   { value: "ADMINISTRATOR", label: "Administrator", note: "Full admin access (syncs with is_admin)" },
@@ -231,7 +231,8 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {ROLE_DEFS.map((r) => {
                   const checked = draftRoles.has(r.value);
-                  const disabled = rolesLockedForSelf || (r.value === "ADMINISTRATOR" && adminBoxDisabled);
+                  // External authors (AIDC 2026) can't hold roles — the server refuses it too.
+                  const disabled = rolesLockedForSelf || manage.baseType === "AUTHOR" || (r.value === "ADMINISTRATOR" && adminBoxDisabled);
                   return (
                     <label key={r.value} className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-sm",
                       disabled ? "border-line bg-soft-2/50 opacity-60" : "border-line hover:bg-soft cursor-pointer",
@@ -246,6 +247,7 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
                 })}
               </div>
               {rolesLockedForSelf && <p className="mt-2 text-xs text-muted">You can&apos;t modify your own roles.</p>}
+              {manage.baseType === "AUTHOR" && <p className="mt-2 text-xs text-muted">External authors (AIDC 2026) are submitters only and can&apos;t be given portal roles.</p>}
               {!rolesLockedForSelf && manage.isAdmin && (isProtected(manage) || isLastAdmin(manage)) && (
                 <p className="mt-2 text-xs text-muted">{isProtected(manage) ? "Administrator can't be removed from a protected original admin." : "Administrator can't be removed from the last administrator."}</p>
               )}

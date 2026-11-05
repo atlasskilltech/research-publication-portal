@@ -20,8 +20,11 @@ const outDir = process.argv[2];
 if (!outDir) { console.error("usage: npm run db:backup -- <outDir>"); process.exit(2); }
 
 const cfg = dbConfigFromEnv(process.env);
-// Raw values (no app type casting) so the dump round-trips exactly.
-const raw = mysql.createConnection({ host: cfg.host, port: cfg.port, user: cfg.user, password: cfg.password, database: cfg.database, ssl: cfg.ssl, connectTimeout: cfg.connectTimeout, timezone: "Z", dateStrings: true, supportBigNumbers: true, bigNumberStrings: true, charset: "utf8mb4_unicode_ci" }).promise();
+// Raw values (no app type casting) so the dump round-trips exactly. JSON
+// columns are read as their JSON TEXT: parsed into JS arrays/objects they
+// would be written back as invalid SQL (`keywords = ,`) and the restore fails.
+const keepJsonText = (field, next) => (field.type === "JSON" ? field.string("utf8") : next());
+const raw = mysql.createConnection({ host: cfg.host, port: cfg.port, user: cfg.user, password: cfg.password, database: cfg.database, ssl: cfg.ssl, connectTimeout: cfg.connectTimeout, timezone: "Z", dateStrings: true, supportBigNumbers: true, bigNumberStrings: true, charset: "utf8mb4_unicode_ci", typeCast: keepJsonText }).promise();
 const db = createDb(createPool({ ...cfg, connectionLimit: 1 }));
 try {
   await raw.query("SET time_zone = '+00:00'");

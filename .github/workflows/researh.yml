@@ -43,6 +43,14 @@ jobs:
 
             # Install dependencies and build
             npm ci
+
+            # Apply pending RPP database migrations (research_* tables only).
+            # Does nothing unless a migration is pending; then: fresh RPP-only
+            # backup -> verify backup -> apply -> verify schema and row counts.
+            # Any failure stops the deploy HERE, before build/reload, so the
+            # running application is left unchanged.
+            npm run db:deploy-migrate
+
             npm run build
 
             # Restart the existing application

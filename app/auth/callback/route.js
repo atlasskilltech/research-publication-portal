@@ -10,7 +10,10 @@ import { siteUrl } from "@/lib/config/env";
 import { OAUTH_STATE_COOKIE, completeGoogleCallback } from "@/lib/oauthPolicy";
 import {
   googleConfig, consumeState, exchangeCode, verifyIdToken, findIdentity, findUser, linkedSubFor, completeSignIn,
+  findAuthorRegistration, activateAuthor,
 } from "@/lib/googleAuth";
+import { sendAuthorRegistrationConfirmation } from "@/lib/authServer";
+import { AUTHOR_COOKIE } from "@/lib/authorRegistration";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +43,10 @@ export async function GET(request) {
           linkedSubFor,
           completeSignIn,
           safeNext: (raw) => safeNextPath(raw),
+          // External authors (AIDC 2026): only used when the flow carries a pending registration.
+          findAuthorRegistration,
+          activateAuthor,
+          sendAuthorConfirmation: sendAuthorRegistrationConfirmation,
         },
       );
     } catch (e) {
@@ -55,6 +62,8 @@ export async function GET(request) {
   // https://localhost:5630/dashboard after sign-in. result.redirect is always a
   // safe same-site app path (see completeGoogleCallback / safeNextPath).
   const res = NextResponse.redirect(new URL(result.redirect, siteUrl()), 303);
+  // The pending Author registration was consumed — drop its browser cookie.
+  if (result.created) res.cookies.set(AUTHOR_COOKIE, "", { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/auth", maxAge: 0 });
   res.headers.set("Cache-Control", "no-store");
   res.headers.set("Referrer-Policy", "no-referrer");
   return res;
