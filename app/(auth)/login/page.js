@@ -101,34 +101,36 @@ export default async function LoginPage({ searchParams }) {
             </div>
           )}
 
+          {/* ONE Google button — Students, Faculty, Admins, Editors, Reviewers. Authors are refused server-side. */}
           <div className="mt-6">
             <GoogleSignInButton next={next} prominent />
           </div>
 
-          <div className="mt-6 flex items-center gap-3" role="separator" aria-label="or">
-            <span className="h-px flex-1 bg-line" />
-            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted">or sign in with a password</span>
-            <span className="h-px flex-1 bg-line" />
+          {/* Authors (and anyone who has set a password): email + password. */}
+          <div id="author-signin" className="mt-8 scroll-mt-6 rounded-xl border border-line bg-white p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">Author sign-in</p>
+            <p className="mt-1 text-sm text-muted">
+              Authors ({CONFERENCE_SHORT}) sign in with their registered email address and password.
+            </p>
+            <div className="mt-4">
+              <LoginForm next={next} />
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              <Link href="/auth/forgot-password" className="font-semibold text-accent hover:underline">Forgot password?</Link>{" "}
+              Authors who signed in with Google before: use it to set a password.
+            </p>
+            <p className="mt-2 text-xs text-muted">
+              Students, faculty and staff who have created a password can also sign in here.
+            </p>
           </div>
 
-          <LoginForm next={next} />
-          <p className="mt-2 text-xs text-muted">
-            Password sign-in works once you&apos;ve created a password (Account settings &rarr; Set a password). New accounts don&apos;t have one.
-          </p>
-
           <p className="mt-6 text-sm text-muted">
-            First submission?{" "}
-            <Link href="/register" className="font-semibold text-accent hover:underline">Start here →</Link>
-          </p>
-          <p className="mt-2 text-sm text-muted">
             External author ({CONFERENCE_SHORT})?{" "}
             <Link href="/register?type=author" className="font-semibold text-accent hover:underline">Register as an Author →</Link>
           </p>
           <p className="mt-2 text-sm text-muted">
-            Just registered? Use <b className="text-ink">Sign in with Google</b> above: no password needed.
-          </p>
-          <p className="mt-2 text-sm text-muted">
-            <Link href="/auth/forgot-password" className="font-semibold text-accent hover:underline">Forgot password?</Link>
+            ATLAS student or faculty, first submission?{" "}
+            <Link href="/register" className="font-semibold text-accent hover:underline">Start here →</Link>
           </p>
         </div>
       </section>

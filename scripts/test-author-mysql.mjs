@@ -27,10 +27,10 @@ import { T } from "../lib/db/tables.mjs";
 import { migrate, preflight, readHistory } from "./db-migrate.mjs";
 import { helpers } from "../database/migrate-helpers.mjs";
 import * as m004 from "../database/migrations/004_author_role.mjs";
-import { hashPassword } from "../lib/auth/password.mjs";
+import { hashPassword, verifyPassword } from "../lib/auth/password.mjs";
 import { sha256Hex, uuid } from "../lib/auth/crypto.mjs";
 import {
-  createRegisteredUser, createAuthorUser, findUserById, setUserRoles, setPasswordHash, rolesFor,
+  createRegisteredUser, createAuthorUser, findUserById, findCredentials, setUserRoles, setPasswordHash, rolesFor,
 } from "../lib/repos/users.mjs";
 import {
   createPendingAuthorRegistration, findPendingAuthorRegistrationByToken, findPendingAuthorRegistration,
@@ -188,6 +188,17 @@ try {
   const p3 = await createPendingAuthorRegistration(db, { ...data, email: "match@gmail.com" }, { ttlSeconds: 1800 });
   check("email mismatch inside the transaction → nothing created", (await activate(p3.id, { sub: "g-x", email: "other@gmail.com" })) === null && !(await db.one(`SELECT id FROM \`${T.users}\` WHERE email IN ('match@gmail.com','other@gmail.com')`)));
   check("duplicate email cannot create a second account (UNIQUE email)", (await rpp(db.transaction((tx) => createAuthorUser(tx, { ...data, current_status: "OTHER", email: "fac@atlasuniversity.edu.in" })))) === "ER_DUP_ENTRY");
+
+  section("Email + password Author (current registration path)");
+  const pwHash = await hashPassword("Author#Password2026");
+  const pwAuthor = await db.transaction((tx) => createAuthorUser(tx, { ...data, email: "pw.author@gmail.com", current_status: "OTHER", passwordHash: pwHash }));
+  const cred = await findCredentials(db, "pw.author@gmail.com");
+  check("Author created with an Argon2id hash (never plaintext)", cred?.password_hash?.startsWith("$argon2id$") && !cred.password_hash.includes("Author#Password2026"));
+  check("…passes the standard password check, wrong password fails", (await verifyPassword(cred.password_hash, "Author#Password2026")).ok && !(await verifyPassword(cred.password_hash, "wrong-password-123")).ok);
+  check("…usable by /api/login (ACTIVE + email confirmed), AUTHOR, not admin, no roles",
+    cred.status === "ACTIVE" && !!cred.email_confirmed_at && (await findUserById(db, pwAuthor)).base_type === "AUTHOR" && (await findUserById(db, pwAuthor)).is_admin === false && (await rolesFor(db, pwAuthor)).length === 0);
+  check("…profile stored", (await findAuthorProfile(db, pwAuthor))?.current_status === "OTHER");
+  check("…no Google identity created", !(await db.one(`SELECT 1 AS x FROM \`${T.userIdentities}\` WHERE user_id = ?`, [pwAuthor])));
 
   section("Authorization data rules");
   check("admin cannot grant an AUTHOR any role → AUTHOR_ROLES", (await rpp(db.transaction((tx) => setUserRoles(tx, { actorId: adminU, targetId: authorId, roles: ["PEER_REVIEWER"] })))) === "AUTHOR_ROLES");

@@ -45,7 +45,7 @@ export default function LoginForm({ next = "/dashboard" }) {
 
   return (
     <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-4">
-      <Input label="Email" type="email" name="email" placeholder="you@atlasuniversity.edu.in" autoComplete="email" required />
+      <Input label="Email" type="email" name="email" placeholder="you@example.com" autoComplete="email" required />
       <Input
         label="Password"
         type="password"

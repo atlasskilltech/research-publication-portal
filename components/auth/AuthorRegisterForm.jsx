@@ -5,37 +5,36 @@ import Link from "next/link";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
-import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import { GOOGLE_NOTICES } from "@/lib/authNotices";
 import { AUTHOR_STATUSES, CONFERENCE_NAME, validateAuthorRegistration } from "@/lib/authorRegistration";
+import { PASSWORD_MIN, passwordStrength } from "@/lib/passwordPolicy";
 
 const STATUS_OPTIONS = [{ value: "", label: "Select your current status…" }, ...AUTHOR_STATUSES];
 const Req = ({ children }) => <>{children} <span className="text-accent">*</span></>;
-
-// Notices that leave a usable pending registration in this browser: offer
-// "Continue with Google" again instead of the form.
-const RETRY_WITH_GOOGLE = new Set(["author_email_mismatch", "google_external_unverified", "google_failed", "google_unavailable"]);
+const FIELDS = ["name", "email", "phone", "organization", "currentStatus", "designation", "location", "password", "confirmPassword"];
 
 /**
- * External AUTHOR registration (AIDC 2026), step 1 of 2: the details form.
- * Step 2 is "Continue with Google" — the account is activated only when the
- * verified Google email matches the email entered here (server-enforced).
- * Validation runs here for instant feedback AND again on the server.
+ * External AUTHOR registration (AIDC 2026): profile fields + password.
+ * One step — the server creates the account (Argon2id hash), signs the user in
+ * and sends a confirmation email. Authors sign in with email + password; Google
+ * Sign-In is not available for them. Validation runs here for instant feedback
+ * AND again on the server.
  */
 export default function AuthorRegisterForm({ notice = "" }) {
   const [issues, setIssues] = useState({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [pendingEmail, setPendingEmail] = useState("");
+  const [done, setDone] = useState(false);
+  const [password, setPassword] = useState("");
   const noticeText = Object.hasOwn(GOOGLE_NOTICES, notice) ? GOOGLE_NOTICES[notice] : "";
-  const [showRetry, setShowRetry] = useState(RETRY_WITH_GOOGLE.has(notice));
+  const strength = password ? passwordStrength(password) : null;
 
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
     setIssues({});
     const fd = new FormData(e.currentTarget);
-    const body = Object.fromEntries(["name", "email", "phone", "organization", "currentStatus", "designation", "location"].map((k) => [k, fd.get(k) || ""]));
+    const body = Object.fromEntries(FIELDS.map((k) => [k, fd.get(k) || ""]));
     const v = validateAuthorRegistration(body);
     if (!v.ok) {
       setIssues(v.fields);
@@ -47,7 +46,7 @@ export default function AuthorRegisterForm({ notice = "" }) {
       const res = await fetch("/api/register/author", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(v.data),
+        body: JSON.stringify({ ...v.data, password: body.password, confirmPassword: body.confirmPassword }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -56,27 +55,18 @@ export default function AuthorRegisterForm({ notice = "" }) {
         setLoading(false);
         return;
       }
-      setPendingEmail(data.email || v.data.email);
+      setDone(true);
+      window.location.assign(data.redirect || "/dashboard"); // signed in by the server
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
     }
   }
 
-  // ---- Step 2: continue with Google --------------------------------------------
-  if (pendingEmail) {
+  if (done) {
     return (
-      <div className="mt-5">
-        <div className="rounded-xl border border-ok/30 bg-ok-soft px-4 py-3 text-sm text-ink" role="status">
-          Your details are saved. To activate your Author account, sign in with Google using <b className="break-all">{pendingEmail}</b>.
-        </div>
-        <div className="mt-5">
-          <GoogleSignInButton prominent
-            hint={`Choose the Google account for ${pendingEmail}. Any verified Google account works (Gmail, university or company).`} />
-        </div>
-        <p className="mt-4 text-xs text-muted">
-          The Google account email must exactly match the email you entered. This step must be completed within 30 minutes. No password is needed.
-        </p>
+      <div className="mt-5 rounded-xl border border-ok/30 bg-ok-soft px-4 py-3 text-sm text-ink" role="status">
+        Your Author account has been created. Taking you to your dashboard…
       </div>
     );
   }
@@ -87,45 +77,43 @@ export default function AuthorRegisterForm({ notice = "" }) {
         <div role="status" className="mb-4 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">{noticeText}</div>
       )}
 
-      {showRetry && (
-        <div className="mb-6 rounded-xl border border-line bg-white p-4">
-          <GoogleSignInButton prominent hint="Use the same email address you entered on the Author form." />
-          <button type="button" onClick={() => setShowRetry(false)} className="mt-3 w-full text-center text-xs font-semibold text-accent hover:underline">
-            Or fill in the Author form again
-          </button>
-        </div>
-      )}
-
-      {!showRetry && (
-        <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
-          <Input label="Full name" name="name" placeholder="e.g. Priya Menon" autoComplete="name" required error={issues.name} />
-          <Input label="Email address" name="email" type="email" placeholder="you@example.com" autoComplete="email" required error={issues.email}
-            hint="Use the email of the Google account you will sign in with (Gmail, university or company Google account)." />
-          <Input label="Phone number" name="phone" type="tel" placeholder="e.g. +91 98765 43210" autoComplete="tel" required error={issues.phone}
-            hint="Include the country code if you are outside India." />
-          <Input label="Organization / Institution name" name="organization" placeholder="e.g. National Institute of Design" autoComplete="organization" required error={issues.organization} />
-          <Select label={<Req>Current status</Req>} name="currentStatus" options={STATUS_OPTIONS} defaultValue="" error={issues.currentStatus} />
-          <Input label="Designation / Job role / Course / Area of study" name="designation" placeholder="e.g. Assistant Professor, UX Designer, M.Des Interaction Design" required error={issues.designation} />
-          <Input label="Organization / Institution location" name="location" placeholder="City, Country (e.g. Ahmedabad, India)" required error={issues.location}
-            hint="Where you work or study." />
-
-          {error && (
-            <p className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger" role="alert">{error}</p>
+      <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
+        <Input label="Full name" name="name" placeholder="e.g. Priya Menon" autoComplete="name" required error={issues.name} />
+        <Input label="Email address" name="email" type="email" placeholder="you@example.com" autoComplete="email" required error={issues.email}
+          hint="You will sign in with this email address and your password." />
+        <Input label="Phone number" name="phone" type="tel" placeholder="e.g. +91 98765 43210" autoComplete="tel" required error={issues.phone}
+          hint="Include the country code if you are outside India." />
+        <Input label="Organization / Institution name" name="organization" placeholder="e.g. National Institute of Design" autoComplete="organization" required error={issues.organization} />
+        <Select label={<Req>Current status</Req>} name="currentStatus" options={STATUS_OPTIONS} defaultValue="" error={issues.currentStatus} />
+        <Input label="Designation / Job role / Course / Area of study" name="designation" placeholder="e.g. Assistant Professor, UX Designer, M.Des Interaction Design" required error={issues.designation} />
+        <Input label="Organization / Institution location" name="location" placeholder="City, Country (e.g. Ahmedabad, India)" required error={issues.location}
+          hint="Where you work or study." />
+        <div>
+          <Input label="Password" name="password" type="password" autoComplete="new-password" required error={issues.password}
+            value={password} onChange={(e) => setPassword(e.target.value)}
+            hint={`At least ${PASSWORD_MIN} characters.`} />
+          {strength && !issues.password && (
+            <p className="mt-1.5 text-xs text-muted">Strength: <b className="text-ink">{strength.label}</b>{strength.hints[0] ? ` · ${strength.hints[0]}` : ""}</p>
           )}
+        </div>
+        <Input label="Confirm password" name="confirmPassword" type="password" autoComplete="new-password" required error={issues.confirmPassword} />
 
-          <p className="text-xs text-muted">
-            Next, you&apos;ll sign in with Google to verify your email. Your Author account lets you submit papers for {CONFERENCE_NAME} and follow their review.
-          </p>
+        {error && (
+          <p className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger" role="alert">{error}</p>
+        )}
 
-          <Button type="submit" variant="primary" size="lg" full disabled={loading}>
-            {loading ? "Saving…" : "Save and continue →"}
-          </Button>
-        </form>
-      )}
+        <p className="text-xs text-muted">
+          Your Author account lets you submit papers for {CONFERENCE_NAME} and follow their review. Authors sign in with email and password; Google Sign-In is not available for Author accounts.
+        </p>
+
+        <Button type="submit" variant="primary" size="lg" full disabled={loading}>
+          {loading ? "Creating account…" : "Create Author account →"}
+        </Button>
+      </form>
 
       <p className="mt-6 text-sm text-muted">
         Already registered as an Author?{" "}
-        <Link href="/login" className="font-semibold text-accent hover:underline">Sign in →</Link>
+        <Link href="/login#author-signin" className="font-semibold text-accent hover:underline">Sign in with email and password →</Link>
       </p>
     </div>
   );

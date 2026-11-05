@@ -16,16 +16,15 @@ function GoogleLogo({ className }) {
 }
 
 /**
- * "Sign in with Google" — the ONE Google button for every role. A plain form
+ * "Sign in with Google" — the ONE Google button (Students, Faculty, Admins,
+ * Editors, Reviewers; Author accounts are refused server-side). A plain form
  * POST to /auth/google (works without JS; JS only adds the loading state).
  * The server starts the PKCE flow and decides the account and role from the
- * verified Google identity — nothing here selects a role. A pending Author
- * registration in this browser is picked up server-side from its httpOnly
- * cookie, so the Author form uses this same button.
+ * verified Google identity — nothing here selects a role.
  */
 export default function GoogleSignInButton({
   next = "/dashboard", disabled = false, prominent = false, label = "Sign in with Google",
-  hint = "Students, faculty, staff and registered authors all use this button.",
+  hint = "For ATLAS students, faculty and staff. Google Sign-In is not available for Authors.",
 }) {
   const [pending, setPending] = useState(false);
 

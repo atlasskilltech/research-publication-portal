@@ -47,8 +47,8 @@ whichever port you run on). Do **not** use any `*.supabase.co` callback.
              3. ID token: RS256 signature (Google JWKS), iss, aud, azp, exp, iat,
                 nonce (bound to this state), email_verified === true,
                 ANY email domain; an @atlasuniversity.edu.in address must have hd = that domain
-             4. match an EXISTING account (any role, as stored): linked Google `sub`, else exact email
-                — or, with no account, activate a pending Author registration with the SAME email
+             4. match an EXISTING account (as stored): linked Google `sub`, else exact email;
+                AUTHOR accounts are refused (Authors use email + password)
                 (first use links the sub; an account already linked to a
                 different Google account is refused)
              ├─ ok       → APP session (MySQL), /dashboard or the safe callbackUrl
@@ -85,8 +85,8 @@ side (state rows, token exchange, JWKS, identity linking) is in
    "Internal", Google itself blocks every non-ATLAS account before the portal
    sees it. The scopes below are non-sensitive, so no Google app verification
    is needed. The portal enforces every rule server-side: only EXISTING
-   accounts (matched by verified email) or a matching pending Author
-   registration can sign in, roles always come from the database, and an
+   non-Author accounts (matched by verified email) can sign in, roles always
+   come from the database, Author accounts are refused, and an
    `@atlasuniversity.edu.in` address must come from the ATLAS Workspace (`hd`).
    See `aidc-author-registration.md`.
 4. **Data access → scopes:** `openid`, `.../auth/userinfo.email` and

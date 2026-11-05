@@ -1,19 +1,19 @@
 /**
  * External AUTHOR (AIDC 2026) — HTTP checks against a RUNNING app (MySQL).
  *
- *   Registration  POST /api/register/author: valid (pending only, httpOnly
- *                 cookie, NO account), duplicate, invalid email/phone,
- *                 missing fields, every current-status option.
- *   Google start  ONE common button: no `hd`; a pending registration in this
- *                 browser is linked server-side (login_hint = its email);
- *                 forged/absent cookie → ordinary sign-in; exactly one Google
- *                 form on /login.
+ *   Registration  POST /api/register/author with password: account (Argon2id
+ *                 hash) + profile + session; duplicate, invalid email/phone,
+ *                 missing fields, password rules, every current-status option.
+ *   Login/reset   email + password login, wrong password, Forgot password for a
+ *                 non-university Author, Google-era Author without a password.
+ *   Google        one common flow, no Author linkage; one Google form on /login
+ *                 plus a separate Author email/password section.
  *   Authorization a real AUTHOR session: own dashboard + profile, submit a
  *                 paper, list/view own papers; refused on another author's
  *                 paper, admin / editor / reviewer / publication / volume /
  *                 assignment / role APIs; an admin can't grant an Author roles.
- * The successful Google callback needs a real Google account; it is covered
- * offline with real RS256 tokens by scripts/test-author-registration.mjs.
+ * The Google callback decision (AUTHOR refused) needs a Google-signed token; it
+ * is covered offline with real RS256 tokens by scripts/test-author-registration.mjs.
  * Throwaway accounts only (self-cleaning).
  *
  *   node scripts/test-author-http.mjs http://localhost:3001   (DB_* = the app's DB)
@@ -31,9 +31,11 @@ const loc = (r) => r.headers.get("location") || "";
 const extEmail = (k) => `rpp.it.${k}.${h.tag()}@example-author.org`;
 const pendingEmails = [];
 
+const PASSWORD = "Author#Pass2026!";
 const VALID = (email) => ({
   name: "IT Author", email, phone: "+91 98765 43210", organization: "Example Institute of Design",
   currentStatus: "RESEARCHER", designation: "Research Fellow", location: "Pune, India",
+  password: PASSWORD, confirmPassword: PASSWORD,
 });
 
 function makePdf(label) {
@@ -87,61 +89,117 @@ async function main() {
   console.log("\nRegistration (POST /api/register/author):");
   const br = h.browser();
   const email = extEmail("reg");
-  pendingEmails.push(email);
   const ok = await br.api("/api/register/author", { method: "POST", json: VALID(email.toUpperCase()) });
-  check("valid Author registration → 201 pending", ok.status === 201 && ok.data?.pending === true && ok.data?.email === email, `${ok.status} ${JSON.stringify(ok.data)}`);
-  const setCookie = (ok.res.headers.getSetCookie?.() || []).find((c) => c.startsWith("rpp_author_reg="));
-  check("registration cookie is httpOnly, SameSite=Lax, path=/auth", !!setCookie && /HttpOnly/i.test(setCookie) && /SameSite=lax/i.test(setCookie) && /Path=\/auth/i.test(setCookie), setCookie);
-  check("token never appears in the JSON body", !JSON.stringify(ok.data).includes(br.jar.get("rpp_author_reg") || "@@"));
-  const pend = await db.one(`SELECT id, email, name, phone, organization, current_status, designation, location, token_hash FROM \`${T.authorRegistrations}\` WHERE email = ?`, [email]);
-  check("pending row stored with every field (email lower-cased), only the token HASH", pend && pend.phone === "+91 98765 43210" && pend.current_status === "RESEARCHER" && pend.location === "Pune, India" && pend.token_hash === sha256Hex(br.jar.get("rpp_author_reg")));
-  check("NO account exists before Google authentication", !(await db.one(`SELECT id FROM \`${T.users}\` WHERE email = ?`, [email])));
+  const created = await h.track(email);
+  check("1. new Author registration with password → 201, → /dashboard", ok.status === 201 && ok.data?.ok === true && ok.data?.redirect === "/dashboard" && ok.data?.email === email, `${ok.status} ${JSON.stringify(ok.data)}`);
+  check("…AUTHOR account created (email lower-cased), not admin, no roles", created?.base_type === "AUTHOR" && created.is_admin === false && !(await db.one(`SELECT role FROM \`${T.userRoles}\` WHERE user_id = ?`, [created.id])));
+  const credRow = await db.one(`SELECT passwordHash FROM \`${T.users}\` WHERE id = ?`, [created?.id]);
+  check("…password stored only as an Argon2id hash (never plaintext)", credRow?.passwordHash?.startsWith("$argon2id$") && !credRow.passwordHash.includes(PASSWORD));
+  const prof = await db.one(`SELECT phone, organization, current_status, designation, location FROM \`${T.authorProfiles}\` WHERE user_id = ?`, [created?.id]);
+  check("…profile stored with every field", prof?.phone === "+91 98765 43210" && prof.current_status === "RESEARCHER" && prof.location === "Pune, India" && prof.organization === "Example Institute of Design");
+  check("…no Google identity, no pending row, no registration cookie",
+    !(await db.one(`SELECT 1 AS x FROM \`${T.userIdentities}\` WHERE user_id = ?`, [created?.id])) && !(await db.one(`SELECT 1 AS x FROM \`${T.authorRegistrations}\` WHERE email = ?`, [email]))
+    && !(ok.res.headers.getSetCookie?.() || []).some((c) => c.startsWith("rpp_author_reg=")));
+  check("…signed in right away (existing session cookie)", br.jar.has("rpp_sid"));
+  const dashNew = await br.api("/api/dashboard");
+  check("…the new session opens the Author dashboard", dashNew.status === 200 && !!dashNew.data?.externalAuthor);
+  check("…response never echoes the password", !JSON.stringify(ok.data).includes(PASSWORD));
 
+  console.log("\nAuthor email + password login:");
+  const lb = h.browser();
+  check("2. existing Author logs in with email + password → 200", (await lb.login(email, PASSWORD)) === 200);
+  check("…case-insensitive email", (await h.browser().login(email.toUpperCase(), PASSWORD)) === 200);
+  const meDash = await lb.api("/api/dashboard");
+  check("…session is the Author's (AIDC profile)", meDash.status === 200 && meDash.data?.externalAuthor?.email === email);
+  check("3. incorrect password → 401 generic", (await h.browser().login(email, "Wrong#Password99")) === 401);
+  check("…unknown email → same 401", (await h.browser().login(extEmail("nobody"), PASSWORD)) === 401);
+
+  console.log("\nAuthor password reset:");
+  const rb = h.browser();
+  const fp = await rb.api("/api/auth/forgot-password", { method: "POST", json: { email } });
+  const tok = await db.one(`SELECT COUNT(*) AS n FROM \`${T.authTokens}\` WHERE user_id = ? AND purpose = 'RECOVERY'`, [created?.id]);
+  check("4. Forgot password for a non-university Author address → neutral 200 AND a recovery link is issued", fp.status === 200 && Number(tok.n) >= 1, `${fp.status} tokens=${tok.n}`);
+  const raw = await h.token(created.id, "RECOVERY");
+  const c = await h.confirmLink(rb, raw, "recovery", "reset");
+  check("…recovery link → /reset-password", /\/reset-password$/.test(c.location || ""), `${c.status} → ${c.location}`);
+  const NEWPW = "Author#Reset2026x";
+  const sp = await rb.api("/api/set-password", { method: "POST", json: { password: NEWPW, confirm: NEWPW } });
+  check("…new password saved", sp.status === 200, `${sp.status}`);
+  check("…old password no longer works, new one does", (await h.browser().login(email, PASSWORD)) === 401 && (await h.browser().login(email, NEWPW)) === 200);
+  check("…earlier sessions were revoked by the reset", (await lb.api("/api/dashboard")).status === 401);
+
+  console.log("\nExisting Author from the Google era (no password) → safe password setup:");
+  const legacyEmail = extEmail("legacy");
+  const legacyId = await db.transaction((tx) => createAuthorUser(tx, {
+    name: "IT Legacy Author", email: legacyEmail, phone: "+91 90000 00001", organization: "Example Org", current_status: "OTHER", designation: "Designer", location: "Delhi, India",
+  }));
+  h.manifest.users.push(legacyId);
+  await db.exec(`INSERT INTO \`${T.userIdentities}\` (id, user_id, provider, subject, email) VALUES (UUID(), ?, 'google', ?, ?)`, [legacyId, `g-legacy-${h.tag()}`, legacyEmail]);
+  check("Google-era Author without a password can't use password login yet (401)", (await h.browser().login(legacyEmail, "anything-at-all-1")) === 401);
+  const lfp = await h.browser().api("/api/auth/forgot-password", { method: "POST", json: { email: legacyEmail } });
+  check("…Forgot password issues a setup/reset link for them", lfp.status === 200 && Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.authTokens}\` WHERE user_id = ? AND purpose = 'RECOVERY'`, [legacyId])).n) >= 1);
+  const lb2 = h.browser();
+  const lc = await h.confirmLink(lb2, await h.token(legacyId, "RECOVERY"), "recovery", "reset");
+  const LPW = "Legacy#Author2026";
+  const lsp = await lb2.api("/api/set-password", { method: "POST", json: { password: LPW, confirm: LPW } });
+  check("…sets a password through the link, then signs in with email + password", /\/reset-password$/.test(lc.location || "") && lsp.status === 200 && (await h.browser().login(legacyEmail, LPW)) === 200);
+  check("…same account kept (no duplicate), profile and Google link record preserved",
+    Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.users}\` WHERE email = ?`, [legacyEmail])).n) === 1
+    && !!(await db.one(`SELECT 1 AS x FROM \`${T.authorProfiles}\` WHERE user_id = ?`, [legacyId]))
+    && !!(await db.one(`SELECT 1 AS x FROM \`${T.userIdentities}\` WHERE user_id = ?`, [legacyId])));
+
+  console.log("\nRegistration validation:");
   for (const s of AUTHOR_STATUSES) {
-    const e = extEmail(`st${s.value.length}`); pendingEmails.push(e);
+    const e = extEmail(`st${s.value.length}`);
     const r = await h.browser().api("/api/register/author", { method: "POST", json: { ...VALID(e), currentStatus: s.value } });
+    await h.track(e);
     check(`current status "${s.label}" accepted`, r.status === 201, `${r.status}`);
   }
-
   const existing = await h.mkUser({ kind: "dup" });
   const dup = await h.browser().api("/api/register/author", { method: "POST", json: VALID(existing.email) });
-  check("duplicate email (existing Student/Faculty account) → 409, no pending row", dup.status === 409 && dup.data?.code === "exists" && !(await db.one(`SELECT id FROM \`${T.authorRegistrations}\` WHERE email = ?`, [existing.email])));
+  check("duplicate email (existing Student/Faculty account) → 409, nothing changed", dup.status === 409 && dup.data?.code === "exists" && (await h.track(existing.email))?.base_type === "FACULTY");
+  const dupAuthor = await h.browser().api("/api/register/author", { method: "POST", json: VALID(email) });
+  check("registering the same Author email twice → 409 (no duplicate account)", dupAuthor.status === 409 && Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.users}\` WHERE email = ?`, [email])).n) === 1);
   const dupSf = await h.browser().api("/api/register/author", { method: "POST", json: VALID("sf48116@gmail.com") });
   check("sf48116@gmail.com (existing account) can't be re-registered as an Author → 409", dupSf.status === 409);
+  const noPw = await h.browser().api("/api/register/author", { method: "POST", json: { ...VALID(extEmail("nopw")), password: "", confirmPassword: "" } });
+  check("missing password → 422", noPw.status === 422 && !!noPw.data?.issues?.password);
+  const shortPw = await h.browser().api("/api/register/author", { method: "POST", json: { ...VALID(extEmail("short")), password: "short1", confirmPassword: "short1" } });
+  check("password under 10 characters → 422", shortPw.status === 422 && !!shortPw.data?.issues?.password);
+  const mismatch = await h.browser().api("/api/register/author", { method: "POST", json: { ...VALID(extEmail("mm")), confirmPassword: "Different#Pass2026" } });
+  check("password and confirmation don't match → 422", mismatch.status === 422 && !!mismatch.data?.issues?.confirmPassword);
   const badEmail = await h.browser().api("/api/register/author", { method: "POST", json: VALID("not-an-email") });
   check("invalid email → 422 with an email issue", badEmail.status === 422 && !!badEmail.data?.issues?.email);
   const badPhone = await h.browser().api("/api/register/author", { method: "POST", json: { ...VALID(extEmail("ph")), phone: "12ab" } });
   check("invalid phone → 422 with a phone issue", badPhone.status === 422 && !!badPhone.data?.issues?.phone);
   const missing = await h.browser().api("/api/register/author", { method: "POST", json: {} });
-  check("missing required fields → 422 listing all 7", missing.status === 422 && Object.keys(missing.data?.issues || {}).length === 7, JSON.stringify(missing.data?.issues));
+  check("missing required fields → 422 listing all 8 (7 profile + password)", missing.status === 422 && Object.keys(missing.data?.issues || {}).length === 8, JSON.stringify(missing.data?.issues));
   const badStatus = await h.browser().api("/api/register/author", { method: "POST", json: { ...VALID(extEmail("bs")), currentStatus: "ADMIN" } });
   check("unknown current status → 422", badStatus.status === 422 && !!badStatus.data?.issues?.currentStatus);
+  const smuggle = extEmail("smuggle");
+  const sm = await h.browser().api("/api/register/author", { method: "POST", json: { ...VALID(smuggle), isAdmin: true, roles: ["ADMINISTRATOR"], baseType: "FACULTY" } });
+  const smU = await h.track(smuggle);
+  check("role/admin/base-type fields in the request are ignored", sm.status === 201 && smU?.base_type === "AUTHOR" && smU.is_admin === false);
   const nojson = await h.browser().req("/api/register/author", { method: "POST", body: "{", headers: { "Content-Type": "application/json" } });
   check("malformed JSON → 400", nojson.status === 400);
   const xsite = await h.browser().req("/api/register/author", { method: "POST", body: JSON.stringify(VALID(extEmail("x"))), headers: { "Content-Type": "application/json", Origin: "https://evil.example" } });
   check("cross-site POST → 403 (CSRF middleware)", xsite.status === 403);
 
   // ---------------------------------------------------------------------------
-  console.log("\nGoogle start — ONE common button (POST /auth/google, no intent):");
-  const a = await startGoogle(br, { next: "/submissions" });
-  check("browser WITH a pending Author registration → 303 to Google", a.r.status === 303 && a.u?.origin === "https://accounts.google.com", a.target);
-  check("…no hd hint, login_hint = registered email", a.u && !a.u.searchParams.has("hd") && a.u.searchParams.get("login_hint") === email);
-  check("…PKCE S256, state and nonce present", a.u?.searchParams.get("code_challenge_method") === "S256" && !!a.u?.searchParams.get("state") && !!a.u?.searchParams.get("nonce"));
-  const row = a.u ? await db.one(`SELECT next_path, author_registration_id FROM \`${T.oauthStates}\` WHERE state_hash = ?`, [sha256Hex(a.u.searchParams.get("state"))]) : null;
-  check("…state row linked to THIS browser's pending registration (picked up server-side from the cookie)", row?.author_registration_id === pend.id);
-
-  const plain = await startGoogle(h.browser(), { next: "/submissions" });
-  const plainRow = plain.u ? await db.one(`SELECT next_path, author_registration_id AS a FROM \`${T.oauthStates}\` WHERE state_hash = ?`, [sha256Hex(plain.u.searchParams.get("state"))]) : null;
-  check("browser WITHOUT a registration → same button, same Google flow: no hd, no login_hint, no registration link",
-    plain.u?.origin === "https://accounts.google.com" && !plain.u.searchParams.has("hd") && !plain.u.searchParams.has("login_hint") && plainRow?.a === null && plainRow?.next_path === "/submissions");
-  const forged = h.browser(); forged.set("rpp_author_reg", crypto.randomBytes(32).toString("base64url"));
-  const fg = await startGoogle(forged, {});
-  const fgRow = fg.u ? await db.one(`SELECT author_registration_id AS a FROM \`${T.oauthStates}\` WHERE state_hash = ?`, [sha256Hex(fg.u.searchParams.get("state"))]) : null;
-  check("forged registration cookie → ignored (ordinary sign-in, nothing linked)", fg.u?.origin === "https://accounts.google.com" && fgRow?.a === null && !fg.u.searchParams.has("login_hint"));
-  const legacy = await startGoogle(h.browser(), { intent: "author_signin" });
-  check("an old intent field is ignored (same flow)", legacy.u?.origin === "https://accounts.google.com" && !legacy.u.searchParams.has("hd"));
+  console.log("\nGoogle start (POST /auth/google):");
+  const g = await startGoogle(h.browser(), { next: "/submissions" });
+  const gRow = g.u ? await db.one(`SELECT next_path, author_registration_id AS a FROM \`${T.oauthStates}\` WHERE state_hash = ?`, [sha256Hex(g.u.searchParams.get("state"))]) : null;
+  check("one common Google flow: 303 to Google, PKCE S256, no hd, no login_hint, no Author linkage",
+    g.r.status === 303 && g.u?.origin === "https://accounts.google.com" && g.u.searchParams.get("code_challenge_method") === "S256"
+    && !g.u.searchParams.has("hd") && !g.u.searchParams.has("login_hint") && gRow?.a === null && gRow?.next_path === "/submissions");
+  const stale = h.browser(); stale.set("rpp_author_reg", crypto.randomBytes(32).toString("base64url"));
+  const sg = await startGoogle(stale, {});
+  const sRow = sg.u ? await db.one(`SELECT author_registration_id AS a FROM \`${T.oauthStates}\` WHERE state_hash = ?`, [sha256Hex(sg.u.searchParams.get("state"))]) : null;
+  check("a stale Author-registration cookie has no effect", sRow?.a === null && !sg.u.searchParams.has("login_hint"));
   const cbForged = await h.browser().req("/auth/callback?code=x&state=nope");
   check("callback with an unknown state → refused (no session)", cbForged.status === 303 && /notice=google_failed/.test(loc(cbForged)));
+  // The verified-token decision (AUTHOR → refused, incl. a linked identity) is
+  // covered with real RS256 tokens in scripts/test-author-registration.mjs.
 
   console.log("\nPages:");
   const reg = await h.browser().req("/register?type=author");
@@ -150,10 +208,12 @@ async function main() {
   const login = await h.browser().req("/login");
   const loginHtml = await login.text();
   check("/login has EXACTLY ONE Google sign-in form", (loginHtml.match(/action="\/auth\/google"/g) || []).length === 1);
-  check("…labelled \"Sign in with Google\", no separate Author button, no intent field", /Sign in with Google/.test(loginHtml) && !/Author sign-in with Google/.test(loginHtml) && !/name="intent"/.test(loginHtml));
-  check("…description \"Sign in with your Google account.\" and heading kept", /Sign in with your Google account\./.test(loginHtml) && /Back to the desk\./.test(loginHtml));
-  check("…Author registration link present", /href="\/register\?type=author"/.test(loginHtml));
-  check("…no ATLAS-only wording on the Google button", !/Use your @atlasuniversity\.edu\.in account/.test(loginHtml));
+  check("…\"Sign in with Google\", no Author Google button, no intent field", /Sign in with Google/.test(loginHtml) && !/Author sign-in with Google/.test(loginHtml) && !/name="intent"/.test(loginHtml));
+  check("…clearly says Google Sign-In is not available for Authors", /Google Sign-In is not available for Authors/.test(loginHtml));
+  check("…separate Author email + password sign-in section", /id="author-signin"/.test(loginHtml) && /Author sign-in/.test(loginHtml) && /name="password"/.test(loginHtml));
+  check("…Author registration link and Forgot password link present", /href="\/register\?type=author"/.test(loginHtml) && /href="\/auth\/forgot-password"/.test(loginHtml));
+  const nt = await (await h.browser().req("/login?notice=author_google_disabled")).text();
+  check("…Author Google refusal notice renders", /Google Sign-In is not available for Author accounts/.test(nt));
 
   // ---------------------------------------------------------------------------
   console.log("\nAuthorization (real AUTHOR session):");
