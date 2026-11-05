@@ -17,31 +17,41 @@ next to Student and Faculty — not a separate system.
    expiry) and puts the raw token in an httpOnly cookie (`rpp_author_reg`,
    path `/auth`). **No account exists yet.** An email that already has an
    account is refused (409).
-4. **Continue with Google** (`POST /auth/google`, `intent=author`): the pending
-   registration is found from the cookie, linked to the single-use OAuth state
-   row, and the registered email is sent as `login_hint`. The `hd` (ATLAS
-   domain) account-chooser hint is omitted.
-5. `/auth/callback` runs every existing check (state + cookie, PKCE, RS256
-   signature, issuer, audience, azp, expiry, iat, nonce) and then requires
-   `email_verified === true` and the Google email to **exactly** match the
-   registered email (case-insensitive). Then, in one transaction: AUTHOR account
-   (non-admin, no roles, no password, email verified) + author profile + Google
-   identity link; the pending row is consumed (single use). The user is signed
-   in, sent to `/dashboard`, and receives one confirmation email (SendGrid,
-   idempotent per user).
-6. Returning Authors use **Author sign-in with Google** on `/login`
-   (`intent=author_signin`, no `hd` hint).
+4. The user clicks the **same "Sign in with Google" button everyone uses**.
+   `/auth/google` sees this browser's pending registration (cookie, read
+   server-side only), links it to the single-use OAuth state row and sends the
+   registered email as `login_hint`.
+5. `/auth/callback` runs every check (state + cookie, PKCE, RS256 signature,
+   issuer, audience, azp, expiry, iat, nonce, `email_verified === true`) and
+   then decides on the server:
+   - **existing account** (by linked Google `sub`, or first use by exact
+     email) → signed in with exactly its stored type, admin flag and roles;
+     a pending registration never converts or re-roles it;
+   - **no account + pending registration** → the Google email must
+     **exactly** match the registered email (case-insensitive). Then, in one
+     transaction: AUTHOR account (non-admin, no roles, no password, email
+     verified) + profile + Google identity link; the pending row is consumed.
+     Signed in, sent to `/dashboard`, one confirmation email (SendGrid).
+     A mismatch is refused with `author_email_mismatch`;
+   - **no account, no registration** → refused (`google_not_registered`);
+     Google never creates an account for an arbitrary user.
+6. Returning Authors simply use "Sign in with Google" on `/login`.
 
-Refusals: mismatch → `author_email_mismatch`; expired/used registration →
-`author_registration_expired`; unverified → `google_external_unverified`; an
-unregistered non-university Google account → `google_external_not_registered`
-(never creates an account).
+### Google accounts accepted
 
-Unchanged: Student/Faculty still require a verified `@atlasuniversity.edu.in`
-Google account (with `hd`); the `sf48116@gmail.com` testing exception still
-works for Student/Faculty registration and still cannot use Google; password
-login/reset are unchanged. A non-university Google email can only ever sign in
-to an AUTHOR account, and no flow converts an existing account's type.
+Any verified Google account, any domain (Gmail, IIT/NIT, other universities,
+other Workspace domains), for every role. Student/Faculty/Admin/Editor/Reviewer
+accounts are matched by their verified email exactly like Authors. One extra
+rule protects ATLAS addresses: an `@atlasuniversity.edu.in` email must come
+from the ATLAS Google Workspace (`hd` claim), so a consumer Google account can
+never pose as an ATLAS address. Student/Faculty *registration* still requires
+an approved university email (`ALLOWED_EMAIL_DOMAINS` / `ALLOWED_EMAILS`),
+unchanged.
+
+Refusals: `author_email_mismatch`, `author_registration_expired`,
+`google_unverified`, `google_not_registered`, `google_disabled`,
+`google_domain` (ATLAS address not from the ATLAS Workspace, or Google account
+linked to a different portal account).
 
 ## Permissions
 

@@ -108,9 +108,13 @@ section("Claim policy (validateIdTokenClaims) — required cases 1–6");
   check("1. verified user@atlasuniversity.edu.in → allowed", (await claimsOf({})).ok);
   check("2. unverified university email → rejected (unverified)", (await claimsOf({ email_verified: false })).reason === "unverified");
   check("2b. email_verified as string 'true' → rejected (must be boolean true)", (await claimsOf({ email_verified: "true" })).reason === "unverified");
-  check("3. user@gmail.com → rejected (domain)", (await claimsOf({ email: "user@gmail.com", hd: undefined })).reason === "domain");
-  check("4. user@outlook.com → rejected (domain)", (await claimsOf({ email: "user@outlook.com", hd: undefined })).reason === "domain");
-  check("5. user@atlasuniversity.edu.in.example.com → rejected (domain)", (await claimsOf({ email: "user@atlasuniversity.edu.in.example.com" })).reason === "domain");
+  // Single Google button: ANY verified Google account passes the claim checks;
+  // whether it may sign in is decided against existing accounts (decideAccount).
+  check("3. verified user@gmail.com → claims accepted (no domain restriction)", (await claimsOf({ email: "user@gmail.com", hd: undefined })).ok);
+  check("4. verified user@outlook.com → claims accepted", (await claimsOf({ email: "user@outlook.com", hd: undefined })).ok);
+  check("5. look-alike user@atlasuniversity.edu.in.example.com → just another external address (accepted, not ATLAS)", (await claimsOf({ email: "user@atlasuniversity.edu.in.example.com", hd: undefined })).ok && !isUniversityEmail("user@atlasuniversity.edu.in.example.com"));
+  check("unverified Gmail → rejected (unverified)", (await claimsOf({ email: "user@gmail.com", hd: undefined, email_verified: false })).reason === "unverified");
+  check("malformed email claim → rejected", !(await claimsOf({ email: "a@b@gmail.com", hd: undefined })).ok);
   const up = await claimsOf({ email: "Mixed.Case@ATLASUNIVERSITY.EDU.IN", hd: "AtlasUniversity.edu.in" });
   check("6. upper-case domain → allowed, email normalised to lower case", up.ok && up.email === "mixed.case@atlasuniversity.edu.in");
   check("university email WITHOUT Workspace hd claim → rejected", (await claimsOf({ hd: undefined })).reason === "hd_mismatch");
@@ -120,7 +124,7 @@ section("Claim policy (validateIdTokenClaims) — required cases 1–6");
   check("azp of another client → rejected", (await claimsOf({ azp: "other-app" })).reason === "bad_audience");
   check("iat in the future → rejected", (await claimsOf({ iat: NOW + 3600, exp: NOW + 7200 })).reason === "bad_iat");
   check("every reason maps to a user message", ["domain", "hd_mismatch", "identity_mismatch", "unverified", "not_registered", "disabled", "bad_nonce", "???"].every((r) => GOOGLE_NOTICES[noticeForReason(r)]));
-  check("required domain message text", GOOGLE_NOTICES.google_domain === "Please sign in using your ATLAS University email account.");
+  check("ATLAS-address message points to the ATLAS Google account", /ATLAS University Google account/.test(GOOGLE_NOTICES.google_domain));
 }
 
 // ---- Account matching ---------------------------------------------------------------------------
@@ -154,7 +158,7 @@ section("Callback end-to-end (fake MySQL + Google token endpoint)");
   const gmail = await callback(w, { email: "user@gmail.com", claims: { hd: undefined, sub: "S-g" } });
   // AIDC 2026: an UNREGISTERED external Google account is still refused with no
   // account and no session; the notice now points external authors to the Author form.
-  check("3. personal gmail (unregistered) → refused, no session, no account", gmail.redirect === "/login?notice=google_external_not_registered" && w.log.sessions.length === 2 && w.users.size === 1);
+  check("3. personal gmail (unregistered) → refused, no session, no account", gmail.redirect === "/login?notice=google_not_registered" && w.log.sessions.length === 2 && w.users.size === 1);
   const newUni = await callback(w, { email: "newbie@atlasuniversity.edu.in", claims: { sub: "S-new" } });
   check("unregistered university user → google_not_registered, no account/session created", newUni.redirect === "/login?notice=google_not_registered" && w.users.size === 1 && w.log.sessions.length === 2);
   const unv = await callback(w, { email: admin.email, claims: { email_verified: false } });
@@ -205,7 +209,7 @@ section("Authorize URL + redirect URI");
   const u = new URL(buildAuthorizeUrl({ clientId: CLIENT_ID, redirectUri: "https://research.atlasskilltech.app/auth/callback", state: "S", nonce: "N", codeChallenge: "C" }));
   check("Google authorize endpoint", u.origin + u.pathname === "https://accounts.google.com/o/oauth2/v2/auth");
   check("code flow + PKCE S256 + state + nonce + openid email scope", u.searchParams.get("response_type") === "code" && u.searchParams.get("code_challenge_method") === "S256" && u.searchParams.get("state") === "S" && u.searchParams.get("nonce") === "N" && /openid/.test(u.searchParams.get("scope")) && /email/.test(u.searchParams.get("scope")));
-  check("hd hint = university domain", u.searchParams.get("hd") === GOOGLE_ALLOWED_DOMAIN);
+  check("no hd hint (one button for every Google account)", !u.searchParams.has("hd"));
   check("client secret never in the authorize URL", !/secret/i.test(u.toString()));
   check("redirect URI must be <origin>/auth/callback over https", validateRedirectUri("https://research.atlasskilltech.app/auth/callback").ok && !validateRedirectUri("https://research.atlasskilltech.app/auth/other").ok && !validateRedirectUri("http://research.atlasskilltech.app/auth/callback").ok);
   check("http allowed only for localhost", validateRedirectUri("http://localhost:3001/auth/callback").ok);

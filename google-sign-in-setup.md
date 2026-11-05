@@ -39,15 +39,16 @@ whichever port you run on). Do **not** use any `*.supabase.co` callback.
 ## How it works
 
 ```
-/login ──POST /auth/google──▶ accounts.google.com (code + PKCE S256, state, nonce, hd hint)
+/login ──POST /auth/google──▶ accounts.google.com (code + PKCE S256, state, nonce; no hd hint)
        ──▶ GET /auth/callback?code&state
              1. state == browser cookie (rpp_oauth_state, httpOnly, 10 min)
                 AND state row exists in MySQL (hashed; deleted on read → single use)
              2. code → tokens at oauth2.googleapis.com (client secret + PKCE verifier, server-side)
              3. ID token: RS256 signature (Google JWKS), iss, aud, azp, exp, iat,
                 nonce (bound to this state), email_verified === true,
-                email exactly @atlasuniversity.edu.in, Workspace hd claim = same domain
-             4. match an EXISTING account: linked Google `sub`, else exact email
+                ANY email domain; an @atlasuniversity.edu.in address must have hd = that domain
+             4. match an EXISTING account (any role, as stored): linked Google `sub`, else exact email
+                — or, with no account, activate a pending Author registration with the SAME email
                 (first use links the sub; an account already linked to a
                 different Google account is refused)
              ├─ ok       → APP session (MySQL), /dashboard or the safe callbackUrl
@@ -79,14 +80,15 @@ side (state rows, token exchange, JWKS, identity linking) is in
    Portal" and a support email. Add `atlasskilltech.app` as an authorised
    domain.
 3. **Audience → User type: External, publishing status "In production"**
-   — REQUIRED since external Authors (AIDC 2026) sign in with any Google
-   account (Gmail, IIT, NIT, …). With "Internal", Google itself blocks every
-   non-ATLAS account before the portal sees it. The scopes below are
-   non-sensitive, so no Google app verification is needed. The portal still
-   enforces every rule server-side: Student/Faculty accounts accept only
-   verified `@atlasuniversity.edu.in` Google accounts; a non-university Google
-   account is accepted only for an AUTHOR account (see
-   `aidc-author-registration.md`).
+   — REQUIRED: the single "Sign in with Google" button accepts any verified
+   Google account (Gmail, IIT, NIT, other Workspace domains). With
+   "Internal", Google itself blocks every non-ATLAS account before the portal
+   sees it. The scopes below are non-sensitive, so no Google app verification
+   is needed. The portal enforces every rule server-side: only EXISTING
+   accounts (matched by verified email) or a matching pending Author
+   registration can sign in, roles always come from the database, and an
+   `@atlasuniversity.edu.in` address must come from the ATLAS Workspace (`hd`).
+   See `aidc-author-registration.md`.
 4. **Data access → scopes:** `openid`, `.../auth/userinfo.email` and
    `.../auth/userinfo.profile`, nothing else.
 5. **Clients → Create client → Web application:**

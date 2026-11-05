@@ -4,10 +4,10 @@
  *   Registration  POST /api/register/author: valid (pending only, httpOnly
  *                 cookie, NO account), duplicate, invalid email/phone,
  *                 missing fields, every current-status option.
- *   Google start  intent=author → Google without `hd`, with login_hint, state
- *                 row linked to the pending registration; no/forged cookie →
- *                 back to the Author form; intent=author_signin → no `hd`;
- *                 the normal Student/Faculty button still sends `hd`.
+ *   Google start  ONE common button: no `hd`; a pending registration in this
+ *                 browser is linked server-side (login_hint = its email);
+ *                 forged/absent cookie → ordinary sign-in; exactly one Google
+ *                 form on /login.
  *   Authorization a real AUTHOR session: own dashboard + profile, submit a
  *                 paper, list/view own papers; refused on another author's
  *                 paper, admin / editor / reviewer / publication / volume /
@@ -122,26 +122,24 @@ async function main() {
   check("cross-site POST → 403 (CSRF middleware)", xsite.status === 403);
 
   // ---------------------------------------------------------------------------
-  console.log("\nGoogle start (POST /auth/google):");
-  const a = await startGoogle(br, { intent: "author", next: "/users" });
-  check("intent=author → 303 to Google", a.r.status === 303 && a.u?.origin === "https://accounts.google.com", a.target);
-  check("…without the ATLAS hd hint, with login_hint = registered email", a.u && !a.u.searchParams.has("hd") && a.u.searchParams.get("login_hint") === email);
+  console.log("\nGoogle start — ONE common button (POST /auth/google, no intent):");
+  const a = await startGoogle(br, { next: "/submissions" });
+  check("browser WITH a pending Author registration → 303 to Google", a.r.status === 303 && a.u?.origin === "https://accounts.google.com", a.target);
+  check("…no hd hint, login_hint = registered email", a.u && !a.u.searchParams.has("hd") && a.u.searchParams.get("login_hint") === email);
   check("…PKCE S256, state and nonce present", a.u?.searchParams.get("code_challenge_method") === "S256" && !!a.u?.searchParams.get("state") && !!a.u?.searchParams.get("nonce"));
   const row = a.u ? await db.one(`SELECT next_path, author_registration_id FROM \`${T.oauthStates}\` WHERE state_hash = ?`, [sha256Hex(a.u.searchParams.get("state"))]) : null;
-  check("state row linked to THIS browser's pending registration; next forced to /dashboard", row?.author_registration_id === pend.id && row?.next_path === "/dashboard");
+  check("…state row linked to THIS browser's pending registration (picked up server-side from the cookie)", row?.author_registration_id === pend.id);
 
-  const noCookie = await startGoogle(h.browser(), { intent: "author" });
-  check("intent=author with no registration cookie → back to the Author form (expired notice)", noCookie.r.status === 303 && /\/register\?type=author&notice=author_registration_expired$/.test(noCookie.target), noCookie.target);
+  const plain = await startGoogle(h.browser(), { next: "/submissions" });
+  const plainRow = plain.u ? await db.one(`SELECT next_path, author_registration_id AS a FROM \`${T.oauthStates}\` WHERE state_hash = ?`, [sha256Hex(plain.u.searchParams.get("state"))]) : null;
+  check("browser WITHOUT a registration → same button, same Google flow: no hd, no login_hint, no registration link",
+    plain.u?.origin === "https://accounts.google.com" && !plain.u.searchParams.has("hd") && !plain.u.searchParams.has("login_hint") && plainRow?.a === null && plainRow?.next_path === "/submissions");
   const forged = h.browser(); forged.set("rpp_author_reg", crypto.randomBytes(32).toString("base64url"));
-  const fg = await startGoogle(forged, { intent: "author" });
-  check("forged registration cookie → refused the same way", /notice=author_registration_expired$/.test(fg.target));
-
-  const ret = await startGoogle(h.browser(), { intent: "author_signin" });
-  check("intent=author_signin (returning Author) → Google without hd, no login_hint, no registration link",
-    ret.u?.origin === "https://accounts.google.com" && !ret.u.searchParams.has("hd") && !ret.u.searchParams.has("login_hint")
-    && (await db.one(`SELECT author_registration_id AS a FROM \`${T.oauthStates}\` WHERE state_hash = ?`, [sha256Hex(ret.u.searchParams.get("state"))]))?.a === null);
-  const std = await startGoogle(h.browser(), { next: "/submissions" });
-  check("normal Student/Faculty sign-in unchanged: hd=atlasuniversity.edu.in, no login_hint", std.u?.searchParams.get("hd") === "atlasuniversity.edu.in" && !std.u.searchParams.has("login_hint"));
+  const fg = await startGoogle(forged, {});
+  const fgRow = fg.u ? await db.one(`SELECT author_registration_id AS a FROM \`${T.oauthStates}\` WHERE state_hash = ?`, [sha256Hex(fg.u.searchParams.get("state"))]) : null;
+  check("forged registration cookie → ignored (ordinary sign-in, nothing linked)", fg.u?.origin === "https://accounts.google.com" && fgRow?.a === null && !fg.u.searchParams.has("login_hint"));
+  const legacy = await startGoogle(h.browser(), { intent: "author_signin" });
+  check("an old intent field is ignored (same flow)", legacy.u?.origin === "https://accounts.google.com" && !legacy.u.searchParams.has("hd"));
   const cbForged = await h.browser().req("/auth/callback?code=x&state=nope");
   check("callback with an unknown state → refused (no session)", cbForged.status === 303 && /notice=google_failed/.test(loc(cbForged)));
 
@@ -151,8 +149,11 @@ async function main() {
   check("/register renders the Student / Faculty / Author choice", reg.status === 200 && /student/i.test(regHtml) && /faculty/i.test(regHtml) && /author/i.test(regHtml));
   const login = await h.browser().req("/login");
   const loginHtml = await login.text();
-  check("/login offers the external-author Google button + registration link", /Author sign-in with Google/.test(loginHtml) && /register\?type=author/.test(loginHtml) && /name="intent" value="author_signin"/.test(loginHtml));
-  check("/login keeps the Student/Faculty Google button (no intent)", (loginHtml.match(/action="\/auth\/google"/g) || []).length === 2);
+  check("/login has EXACTLY ONE Google sign-in form", (loginHtml.match(/action="\/auth\/google"/g) || []).length === 1);
+  check("…labelled \"Sign in with Google\", no separate Author button, no intent field", /Sign in with Google/.test(loginHtml) && !/Author sign-in with Google/.test(loginHtml) && !/name="intent"/.test(loginHtml));
+  check("…description \"Sign in with your Google account.\" and heading kept", /Sign in with your Google account\./.test(loginHtml) && /Back to the desk\./.test(loginHtml));
+  check("…Author registration link present", /href="\/register\?type=author"/.test(loginHtml));
+  check("…no ATLAS-only wording on the Google button", !/Use your @atlasuniversity\.edu\.in account/.test(loginHtml));
 
   // ---------------------------------------------------------------------------
   console.log("\nAuthorization (real AUTHOR session):");

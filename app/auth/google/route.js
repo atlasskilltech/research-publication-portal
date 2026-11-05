@@ -1,19 +1,19 @@
-// Start "Sign in with Google" (direct OpenID Connect, Authorization Code + PKCE).
+// Start "Sign in with Google" (direct OpenID Connect, Authorization Code + PKCE)
+// — the ONE Google button for every role (Student, Faculty, Admin, Editor,
+// Reviewer, Author).
 //
-// The login page POSTs here (CSRF-checked by middleware). We create a
-// single-use state row in MySQL (state hash, nonce, PKCE verifier, safe next
-// path; 10-minute expiry), bind the raw state to this browser with an httpOnly
-// cookie, and redirect to Google. `hd` is only an account-chooser hint — the
-// domain is enforced on the verified ID token in /auth/callback.
+// The login page (and the Author form's second step) POST here (CSRF-checked
+// by middleware). We create a single-use state row in MySQL (state hash,
+// nonce, PKCE verifier, safe next path; 10-minute expiry), bind the raw state
+// to this browser with an httpOnly cookie, and redirect to Google. No `hd`
+// hint: any Google account can be chosen; every rule is enforced on the
+// verified ID token in /auth/callback.
 //
-// External authors (AIDC 2026), via the hidden `intent` field:
-//   intent=author         activate a pending Author registration: the pending
-//                         row is found from this browser's httpOnly
-//                         rpp_author_reg cookie (never from the form), linked to
-//                         the state row, and its email is sent as login_hint.
-//                         No/expired registration → back to the Author form.
-//   intent=author_signin  returning Author: same flow without the `hd` hint so
-//                         a non-university Google account can be chosen.
+// If this browser holds a pending Author registration (httpOnly
+// rpp_author_reg cookie, set by /api/register/author — never read from the
+// form), it is linked to the state row and its email sent as login_hint, so
+// the callback can activate it when the verified Google email matches.
+// Nothing here decides an account or a role.
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { safeNextPath } from "@/lib/authFlow";
@@ -30,31 +30,25 @@ export const dynamic = "force-dynamic";
 // Resolve against the configured public origin, not request.url, which behind
 // the reverse proxy reports the internal origin (e.g. https://localhost:5630).
 const toLogin = (notice) => NextResponse.redirect(new URL(`/login?notice=${notice}`, siteUrl()), 303);
-const toAuthorForm = (notice) => NextResponse.redirect(new URL(`/register?type=author&notice=${notice}`, siteUrl()), 303);
 
 export async function POST(request) {
   let next = "/dashboard";
-  let intent = "";
   try {
-    const fd = await request.formData();
-    next = safeNextPath(fd.get("next"));
-    intent = String(fd.get("intent") || "");
+    next = safeNextPath((await request.formData()).get("next"));
   } catch {
     // no/invalid body → default destination
   }
 
   const cfg = googleConfig();
-  if (!cfg) return intent === "author" ? toAuthorForm("google_unavailable") : toLogin("google_unavailable");
+  if (!cfg) return toLogin("google_unavailable");
   try {
     const jar = await cookies();
     let opts = {};
-    if (intent === "author") {
-      const reg = await findPendingAuthorRegistrationByToken(db, jar.get(AUTHOR_COOKIE)?.value || "");
-      if (!reg) return toAuthorForm("author_registration_expired");
-      opts = { external: true, authorRegistrationId: reg.id, loginHint: reg.email };
-      next = "/dashboard";
-    } else if (intent === "author_signin") {
-      opts = { external: true };
+    const pendingToken = jar.get(AUTHOR_COOKIE)?.value;
+    if (pendingToken) {
+      // A lookup failure must never block ordinary sign-in.
+      const reg = await findPendingAuthorRegistrationByToken(db, pendingToken).catch(() => null);
+      if (reg) opts = { authorRegistrationId: reg.id, loginHint: reg.email };
     }
     const { url, state } = await beginGoogleSignIn(next, cfg, opts);
     jar.set(OAUTH_STATE_COOKIE, state, {
@@ -67,7 +61,7 @@ export async function POST(request) {
     return NextResponse.redirect(url, 303);
   } catch (e) {
     console.error("google-auth: start failed:", e?.code || e?.message);
-    return intent === "author" ? toAuthorForm("google_unavailable") : toLogin("google_unavailable");
+    return toLogin("google_unavailable");
   }
 }
 

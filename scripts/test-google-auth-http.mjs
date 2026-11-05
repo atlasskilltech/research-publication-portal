@@ -2,7 +2,7 @@
  * Google Sign-In (direct OpenID Connect) — HTTP checks against a RUNNING app.
  *
  * Verifies the login UI, the start request (Authorization Code + PKCE S256,
- * state, nonce, hd, redirect_uri, httpOnly state cookie, hashed single-use
+ * state, nonce, no hd hint, redirect_uri, httpOnly state cookie, hashed single-use
  * state row in MySQL) and every callback rejection path: missing / mismatched
  * state cookie, unknown state, REPLAYED state, expired state, provider error;
  * plus forged session cookies against pages and APIs. A successful Google
@@ -47,7 +47,7 @@ async function main() {
     check("email/password form still present", html.includes('name="password"') && html.includes('name="email"'));
     check("no client secret / Supabase in the page", !/test-secret-not-real|client_secret|supabase/i.test(html));
     const n = await (await h.browser().req("/login?notice=google_domain")).text();
-    check("domain notice text rendered", n.includes("Please sign in using your ATLAS University email account."));
+    check("domain notice text rendered", n.includes("sign in with your ATLAS University Google account."));
     check("unknown/prototype notice key harmless", (await h.browser().req("/login?notice=__proto__")).status === 200);
   }
 
@@ -60,7 +60,7 @@ async function main() {
   check("redirect_uri = GOOGLE_REDIRECT_URI (app route, not Supabase)", u?.searchParams.get("redirect_uri") === "http://localhost:3001/auth/callback");
   check("PKCE code_challenge, method S256", /^[A-Za-z0-9_-]{43}$/.test(u?.searchParams.get("code_challenge") || "") && u?.searchParams.get("code_challenge_method") === "S256");
   check("state + nonce present and distinct", !!state && !!u?.searchParams.get("nonce") && state !== u.searchParams.get("nonce"));
-  check("hd = atlasuniversity.edu.in, prompt=select_account", u?.searchParams.get("hd") === "atlasuniversity.edu.in" && u?.searchParams.get("prompt") === "select_account");
+  check("no hd hint (one button for every Google account), prompt=select_account", !u?.searchParams.has("hd") && u?.searchParams.get("prompt") === "select_account");
   check("client secret NOT in the authorize URL", !/test-secret-not-real|client_secret/.test(u?.toString() || ""));
   const setCookie = (r.headers.getSetCookie?.() || []).find((c) => c.startsWith("rpp_oauth_state="));
   check("state cookie: httpOnly, SameSite=Lax, path /auth, 10 min", !!setCookie && /HttpOnly/i.test(setCookie) && /SameSite=lax/i.test(setCookie) && /Path=\/auth/.test(setCookie) && /Max-Age=600/.test(setCookie));
