@@ -183,6 +183,26 @@ try {
   const dpg = await userPapers(db, POC, { page: 2, pageSize: 2 });
   check("detail pagination", dpg.total === 3 && dpg.papers.length === 1);
 
+  section("Labels: \"Listed as Co-author\" and Disabled accounts");
+  const lab = await userPaperStats(db, Q());
+  check("Student (submitter of P1, also listed) → listedCoAuthor 0", byEmail(lab, "stu@atlasuniversity.edu.in").listedCoAuthor === 0);
+  check("Faculty (only listed on P1, submitted P2 + P5) → listedCoAuthor 1, submitted still 3", byEmail(lab, "fac@atlasuniversity.edu.in").listedCoAuthor === 1 && byEmail(lab, "fac@atlasuniversity.edu.in").submitted === 3);
+  check("Author (listed on P1, submitted P3) → listedCoAuthor 1", byEmail(lab, "aru@gmail.com").listedCoAuthor === 1);
+  check("reviewer/POC rows → listedCoAuthor 0", byEmail(lab, "rev@atlasuniversity.edu.in").listedCoAuthor === 0 && byEmail(lab, "poc@atlasuniversity.edu.in").listedCoAuthor === 0);
+  const fd = await userPapers(db, FAC, {});
+  const fP1 = fd.papers.find((p) => p.id === P1);
+  check("Faculty detail: P1 labelled exactly \"Listed as Co-author\" and flagged listedCoAuthorOnly", JSON.stringify(fP1.relationshipLabels) === '["Listed as Co-author"]' && fP1.listedCoAuthorOnly === true);
+  check("Faculty detail: own submissions labelled \"Author (submitter)\", not flagged", fd.papers.filter((p) => p.id !== P1).every((p) => p.relationshipLabels.join() === "Author (submitter)" && p.listedCoAuthorOnly === false));
+  const sP1 = (await userPapers(db, STU, {})).papers.find((p) => p.id === P1);
+  check("Student detail: submitter who also listed themselves shows only \"Author (submitter)\" (raw relationships keep both)", JSON.stringify(sP1.relationshipLabels) === '["Author (submitter)"]' && sP1.relationships.join() === "CO_AUTHOR,SUBMITTER" && sP1.listedCoAuthorOnly === false);
+  check("no label says plain \"Co-author\" anywhere", [...fd.papers, ...(await userPapers(db, AUT, {})).papers].every((p) => !p.relationshipLabels.includes("Co-author")));
+  await db.exec(`UPDATE \`${T.users}\` SET status = 'DISABLED' WHERE id = ?`, [FAC]);
+  const dis = await userPaperStats(db, Q());
+  check("disabled account still listed, status DISABLED, counts unchanged", byEmail(dis, "fac@atlasuniversity.edu.in")?.status === "DISABLED" && byEmail(dis, "fac@atlasuniversity.edu.in").total === 3 && dis.total === 9);
+  check("active accounts report ACTIVE", byEmail(dis, "stu@atlasuniversity.edu.in").status === "ACTIVE");
+  check("user detail carries status DISABLED", (await userPapers(db, FAC, {})).user.status === "DISABLED" && (await userPapers(db, STU, {})).user.status === "ACTIVE");
+  await db.exec(`UPDATE \`${T.users}\` SET status = 'ACTIVE' WHERE id = ?`, [FAC]);
+
   section("Read-only");
   const counts = async () => JSON.stringify(await Promise.all([T.papers, T.paperAuthors, T.paperAssignments, T.users, T.userRoles].map(async (t) => Number((await db.one(`SELECT COUNT(*) AS n FROM \`${t}\``)).n))));
   const before = await counts();

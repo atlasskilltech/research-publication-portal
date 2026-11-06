@@ -52,6 +52,17 @@ function Pager({ page, pageSize, total, onPage }) {
 
 const Num = ({ v, strong }) => <span className={`tabular-nums ${strong ? "font-bold text-ink" : v ? "text-ink" : "text-muted"}`}>{v}</span>;
 
+const LISTED_HELP = "Matched by email from the author list the submitter typed in. Not verified authorship.";
+const LISTED_LABEL = "Listed as Co-author";
+const DisabledBadge = () => (
+  <span title="This account is disabled and can't sign in. Its records are kept."><Badge className="bg-danger-soft text-danger border-danger/30">Disabled</Badge></span>
+);
+/** "incl. N Listed as Co-author" under the Submitted count. */
+const ListedNote = ({ n }) => (n > 0 ? (
+  <span className="block text-[11px] font-normal text-muted" title={LISTED_HELP}>incl. {n} {LISTED_LABEL}</span>
+) : null);
+const isDisabled = (u) => u?.status === "DISABLED";
+
 /** Admin-only "Paper statistics": summary cards, user-wise table, per-user paper list. */
 export default function PaperStatistics() {
   const [filters, setFilters] = useState({ search: "", role: "", status: "", sort: "total_desc", includeZero: true });
@@ -149,11 +160,12 @@ export default function PaperStatistics() {
                     <tr key={u.id} className="cursor-pointer hover:bg-soft" onClick={() => setDetailUser(u)}>
                       <td className="px-4 py-3">
                         <button type="button" className="text-left font-semibold text-ink hover:underline" onClick={(e) => { e.stopPropagation(); setDetailUser(u); }}>{u.name}</button>
+                        {isDisabled(u) && <span className="ml-2 align-middle"><DisabledBadge /></span>}
                         <p className="break-all text-xs text-muted">{u.email}</p>
                       </td>
                       <td className="px-3 py-3"><div className="flex flex-wrap gap-1">{u.roles.map((r) => <Badge key={r} className="bg-soft-2 text-ink border-line">{r}</Badge>)}</div></td>
                       <td className="px-3 py-3 text-right"><Num v={u.total} strong /></td>
-                      <td className="px-3 py-3 text-right"><Num v={u.submitted} /></td>
+                      <td className="px-3 py-3 text-right"><Num v={u.submitted} /><ListedNote n={u.listedCoAuthor} /></td>
                       <td className="px-3 py-3 text-right"><Num v={u.assigned} /></td>
                       <td className="px-3 py-3 text-right"><Num v={u.underReview} /></td>
                       <td className="px-3 py-3 text-right"><Num v={u.accepted} /></td>
@@ -168,9 +180,10 @@ export default function PaperStatistics() {
               {data.users.map((u) => (
                 <li key={u.id}>
                   <button type="button" className="w-full px-4 py-3 text-left" onClick={() => setDetailUser(u)}>
-                    <p className="font-semibold text-ink">{u.name}</p>
+                    <p className="font-semibold text-ink">{u.name}{isDisabled(u) && <span className="ml-2 align-middle"><DisabledBadge /></span>}</p>
                     <p className="break-all text-xs text-muted">{u.email}</p>
                     <div className="mt-1.5 flex flex-wrap gap-1">{u.roles.map((r) => <Badge key={r} className="bg-soft-2 text-ink border-line">{r}</Badge>)}</div>
+                    {u.listedCoAuthor > 0 && <p className="mt-1.5 text-[11px] text-muted" title={LISTED_HELP}>Submitted incl. {u.listedCoAuthor} {LISTED_LABEL}</p>}
                     <dl className="mt-2 grid grid-cols-3 gap-2 text-xs">
                       {[["Total", u.total], ["Submitted", u.submitted], ["Assigned", u.assigned], ["Under review", u.underReview], ["Accepted", u.accepted], ["Rejected", u.rejected]].map(([k, v]) => (
                         <div key={k}><dt className="text-muted">{k}</dt><dd className="font-semibold tabular-nums text-ink">{v}</dd></div>
@@ -185,7 +198,7 @@ export default function PaperStatistics() {
         )}
       </Card>
       <p className="mt-3 text-xs text-muted">
-        Submitted = papers the person submitted or is listed on as an author (matched by email). Assigned = papers assigned to them as POC, reviewer or editor.
+        Submitted = papers the person submitted, plus papers where they are <b>{LISTED_LABEL}</b>: their email appears in the author list typed in by the submitter (not verified authorship). Assigned = papers assigned to them as POC, reviewer or editor.
         Each paper is counted once per person, however many author rows or assignments link them. Accepted includes published papers.
       </p>
 
@@ -221,7 +234,15 @@ function UserPapersModal({ user, status, onClose }) {
     <Modal open={!!user} onClose={onClose} size="lg" eyebrow="Associated papers" title={user ? `${user.name}` : ""}>
       {user && (
         <div>
-          <p className="break-all text-xs text-muted">{user.email} · {user.roles.join(", ") || "—"}{status ? ` · only ${statusLabel(status).toLowerCase()} papers` : ""}</p>
+          <p className="break-all text-xs text-muted">
+            {isDisabled(data?.user || user) && <span className="mr-2 align-middle"><DisabledBadge /></span>}
+            {user.email} · {user.roles.join(", ") || "—"}{status ? ` · only ${statusLabel(status).toLowerCase()} papers` : ""}
+          </p>
+          {data?.papers?.some((p) => p.listedCoAuthorOnly) && (
+            <p className="mt-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">
+              <b>{LISTED_LABEL}</b>: this person&apos;s email appears in the author list the submitter typed in. It is not verified authorship.
+            </p>
+          )}
           {error ? <p className="mt-4 text-sm text-danger">{error}</p> : !data ? (
             <div className="flex items-center gap-2 py-8 text-sm text-muted"><Spinner /> Loading…</div>
           ) : data.papers.length === 0 ? (
@@ -239,7 +260,9 @@ function UserPapersModal({ user, status, onClose }) {
                       <Badge className={STATUS_CLS[p.status] || STATUS_CLS.SUBMITTED}>{statusLabel(p.status)}</Badge>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                      {p.relationshipLabels.map((r) => <Badge key={r} className="bg-brand/5 text-brand border-brand/20">{r}</Badge>)}
+                      {p.relationshipLabels.map((r) => (r === LISTED_LABEL
+                        ? <span key={r} title={LISTED_HELP}><Badge className="border-dashed bg-warn-soft text-warn border-warn/40">{r}</Badge></span>
+                        : <Badge key={r} className="bg-brand/5 text-brand border-brand/20">{r}</Badge>))}
                       <Link href={`/submissions/${p.id}`} className="ml-auto text-xs font-semibold text-accent hover:underline">Open paper →</Link>
                     </div>
                   </li>

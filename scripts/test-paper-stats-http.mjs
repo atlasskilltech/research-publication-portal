@@ -79,6 +79,17 @@ async function main() {
   check("Reviewer (desk + peer on the same paper): assigned 1", row(reviewer.email)?.assigned === 1 && row(reviewer.email).total === 1 && row(reviewer.email).roles.includes("Reviewer"));
   check("Editor: assigned 1; POC: assigned 1 (role POC)", row(editor.email)?.assigned === 1 && row(poc.email)?.assigned === 1 && row(poc.email).roles.includes("POC"));
   check("zero-paper user (the admin) listed with 0", row(admin.email)?.total === 0);
+  check("Faculty listed by email only → listedCoAuthor 1; Student (submitter) → 0", row(faculty.email)?.listedCoAuthor === 1 && row(student.email)?.listedCoAuthor === 0 && row(aEmail)?.listedCoAuthor === 1);
+  const fd = await ab.api(`/api/admin/stats/users/${faculty.id}`);
+  check("detail for a listed co-author: label \"Listed as Co-author\", flagged listedCoAuthorOnly", fd.status === 200 && JSON.stringify(fd.data.papers[0]?.relationshipLabels) === '["Listed as Co-author"]' && fd.data.papers[0].listedCoAuthorOnly === true);
+  const sd = await ab.api(`/api/admin/stats/users/${student.id}`);
+  check("detail for the submitter: only \"Author (submitter)\"", JSON.stringify(sd.data.papers[0]?.relationshipLabels) === '["Author (submitter)"]');
+  const off = await h.mkUser({ kind: "off" });
+  await db.exec(`UPDATE \`${T.users}\` SET status = 'DISABLED' WHERE id = ?`, [off.id]);
+  const offRow = (await ab.api(`/api/admin/stats?search=${encodeURIComponent(off.email)}`)).data?.users?.[0];
+  const offDetail = await ab.api(`/api/admin/stats/users/${off.id}`);
+  check("disabled account: status DISABLED in the table and the detail view", offRow?.status === "DISABLED" && offDetail.data?.user?.status === "DISABLED");
+  check("active account: status ACTIVE", row(student.email)?.status === "ACTIVE");
   const f = await ab.api(`/api/admin/stats?search=${encodeURIComponent("rpp.it.")}&role=REVIEWER&status=UNDER_REVIEW&pageSize=100`);
   check("role + status filters", f.status === 200 && f.data.users.some((u) => u.email === reviewer.email) && f.data.users.every((u) => u.roles.includes("Reviewer")));
   const d = await ab.api(`/api/admin/stats/users/${reviewer.id}`);
