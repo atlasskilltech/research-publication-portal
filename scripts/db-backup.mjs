@@ -10,7 +10,7 @@
  * The output contains personal data and password hashes: it is written with
  * mode 0600 and must be kept OUTSIDE the repository / web root.
  */
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, chmodSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import mysql from "mysql2";
 import { createDb, createPool, dbConfigFromEnv } from "../lib/db/core.mjs";
@@ -31,6 +31,7 @@ try {
   const [tables] = await raw.query("SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN (?) ORDER BY table_name", [OWN_TABLES]);
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "Z");
   mkdirSync(outDir, { recursive: true });
+  chmodSync(outDir, 0o700); // dir holds dumps with personal data + password hashes; files are written 0600 below
   const file = path.join(outDir, `rpp-backup-${cfg.database}-${stamp}.sql`);
   const parts = [`-- RPP backup of ${cfg.database} @ ${cfg.host} — ${new Date().toISOString()}\nSET NAMES utf8mb4;\nSET time_zone = '+00:00';\nSET FOREIGN_KEY_CHECKS = 0;\n`];
   const counts = {};

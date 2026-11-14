@@ -6,7 +6,7 @@
  *   2. Collision preflight must pass (no foreign table with an RPP name).
  *   3. FRESH backup of ONLY the RPP `research_*` tables (scripts/db-backup.mjs,
  *      self-verified: INSERT rows in the file == live COUNT(*)), into
- *      RPP_BACKUP_DIR (default ~/rpp-backups, outside the repo, mode 0600).
+ *      <repo>/backups (gitignored, mode 0600) — fixed location, never under $HOME.
  *      The file must exist, be non-empty and contain research_users.
  *   4. Apply the pending migrations (idempotent, additive; see database/migrations).
  *   5. Verify: history complete, row counts of every pre-existing RPP table
@@ -20,7 +20,6 @@
  */
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,7 +34,9 @@ const { T, OWN_TABLES } = await import("../lib/db/tables.mjs");
 const { preflight, migrate, readHistory, listMigrations, serverInfo } = await import("./db-migrate.mjs");
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const backupDir = process.env.RPP_BACKUP_DIR || path.join(os.homedir(), "rpp-backups");
+// Fixed to <repo>/backups (gitignored). The destination is hardcoded and reads
+// no environment override, so nothing can redirect backups outside the project.
+const backupDir = path.join(root, "backups");
 
 async function counts(db) {
   const out = {};
