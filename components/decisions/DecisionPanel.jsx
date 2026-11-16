@@ -20,13 +20,16 @@ const DECISION_OPTS = [
   { value: "REJECT", label: "Reject" },
 ];
 const isRev = (d) => d === "MINOR_REVISION" || d === "MAJOR_REVISION";
+// Accept and revision decisions go to the Program Chair first; Reject goes straight to the author.
+const needsChair = (d) => d === "ACCEPT" || isRev(d);
 const fmt = (d) => (d ? new Date(d).toLocaleString() : "—");
 const today = () => new Date().toISOString().slice(0, 10);
 
 /**
  * Admin / paper-editor decision panel: read the submitted reviews (shown in the
- * Review progress card), save a decision draft, then communicate it. Shows the
- * full decision history. Every rule is enforced server-side.
+ * Review progress card), save a decision draft, then communicate it (Reject)
+ * or send it to the Program Chair for final approval (Accept / Revision).
+ * Shows the full decision + approval history. Every rule is enforced server-side.
  */
 export default function DecisionPanel({ paperId, onChanged }) {
   const [data, setData] = useState(null);
@@ -66,6 +69,7 @@ export default function DecisionPanel({ paperId, onChanged }) {
   const round = data.currentRound ?? 0;
   const current = data.decisions.find((d) => d.round === round) || null;
   const submittedReviews = (reviews?.reviewers || []).filter((r) => r.reviewStatus === "SUBMITTED" && r.review?.id);
+  const awaitingChair = current?.approval?.status === "PENDING" && !current.releasedAt;
   const canDecideNow = data.paperStatus === "UNDER_REVIEW" && !(current && !current.editable);
   const history = data.decisions.slice().reverse();
 
@@ -76,7 +80,22 @@ export default function DecisionPanel({ paperId, onChanged }) {
         <span className="text-xs text-muted">Round {round + 1}{round > 0 ? ` (revision ${round})` : ""}</span>
       </div>
 
-      {canDecideNow ? (
+      {awaitingChair && (
+        <div className="mt-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-sm">
+          <p className="font-semibold text-warn">Waiting for Program Chair approval</p>
+          <p className="mt-0.5 text-xs text-muted">Sent {fmt(current.approval.requestedAt)}{current.approval.requestedBy ? ` by ${current.approval.requestedBy}` : ""}. The decision is locked until the Program Chair approves it or sends it back. Nothing has been sent to the author yet.</p>
+        </div>
+      )}
+      {!awaitingChair && current?.approval?.status === "RETURNED" && !current.releasedAt && (
+        <div className="mt-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm">
+          <p className="font-semibold text-danger">Sent back by the Program Chair</p>
+          <p className="mt-0.5 text-xs text-muted">{current.approval.actedBy ? `${current.approval.actedBy} · ` : ""}{fmt(current.approval.actedAt)}</p>
+          {current.approval.comment && <p className="mt-1 whitespace-pre-wrap text-ink">{current.approval.comment}</p>}
+          <p className="mt-1 text-xs text-muted">Update the decision if needed, save it, and send it again.</p>
+        </div>
+      )}
+
+      {awaitingChair ? null : canDecideNow ? (
         submittedReviews.length ? (
           <DecisionForm key={current ? `${current.id}:${current.version}` : "new"} paperId={paperId} draft={current}
             submittedReviews={submittedReviews} onDone={() => { load(); onChanged?.(); }} />
@@ -103,7 +122,9 @@ export default function DecisionPanel({ paperId, onChanged }) {
                   <DecisionBadge decision={d.decision} />
                   {d.releasedAt
                     ? <Badge className="bg-ok-soft text-ok border-ok/30">Communicated</Badge>
-                    : <Badge className="bg-warn-soft text-warn border-warn/30">Draft · v{d.version}</Badge>}
+                    : d.approval?.status === "PENDING"
+                      ? <Badge className="bg-warn-soft text-warn border-warn/30">Awaiting Program Chair · v{d.version}</Badge>
+                      : <Badge className="bg-warn-soft text-warn border-warn/30">Draft · v{d.version}</Badge>}
                 </div>
                 <p className="mt-1 text-xs text-muted">
                   {d.releasedAt ? `Communicated ${fmt(d.releasedAt)}${d.releasedBy ? ` by ${d.releasedBy}` : ""}` : `Last saved ${fmt(d.updatedAt)}${d.decidedBy ? ` by ${d.decidedBy}` : ""}`}
@@ -111,6 +132,17 @@ export default function DecisionPanel({ paperId, onChanged }) {
                 <p className="mt-2 whitespace-pre-wrap text-ink">{d.summary}</p>
                 {d.confidentialNote && (
                   <p className="mt-2 rounded bg-warn-soft px-2 py-1 text-xs"><span className="inline-flex items-center gap-1 font-semibold text-warn"><Icon name="lock" size={11} /> Confidential note:</span> {d.confidentialNote}</p>
+                )}
+                {(d.approvalHistory || []).length > 0 && (
+                  <ul className="mt-2 space-y-1 border-t border-line pt-2 text-xs">
+                    {d.approvalHistory.map((a) => (
+                      <li key={a.id} className="text-muted">
+                        <span className={a.status === "APPROVED" ? "font-semibold text-ok" : a.status === "RETURNED" ? "font-semibold text-danger" : "font-semibold text-warn"}>{a.label}</span>
+                        {" · "}{a.status === "PENDING" ? `sent ${fmt(a.requestedAt)}` : `${a.actedBy ? `${a.actedBy}, ` : ""}${fmt(a.actedAt)}`}
+                        {a.comment && <span className="block whitespace-pre-wrap text-ink">“{a.comment}”</span>}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </li>
             ))}
@@ -151,7 +183,9 @@ function DecisionForm({ paperId, draft, submittedReviews, onDone }) {
       if (!res.ok) { setIssues(d.issues || {}); throw new Error(d.error || "Could not save the decision."); }
       setSaved({ id: d.decision.id, version: d.decision.version });
       setDirty(false);
-      setMsg("Draft saved. Review it, then communicate it to the author.");
+      setMsg(needsChair(decision)
+        ? "Draft saved. Review it, then send it to the Program Chair for final approval."
+        : "Draft saved. Review it, then communicate it to the author.");
       return d.decision;
     } catch (e) { setMsg(e.message); return null; }
     finally { setBusy(false); }
@@ -165,7 +199,7 @@ function DecisionForm({ paperId, draft, submittedReviews, onDone }) {
         body: JSON.stringify({ expectedVersion: saved.version }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || "Could not communicate the decision.");
+      if (!res.ok) throw new Error(d.error || (needsChair(decision) ? "Could not send the decision for approval." : "Could not communicate the decision."));
       setConfirming(false);
       onDone();
     } catch (e) { setMsg(e.message); setConfirming(false); }
@@ -173,11 +207,12 @@ function DecisionForm({ paperId, draft, submittedReviews, onDone }) {
   }
 
   const effect = {
-    ACCEPT: "The paper will be marked ACCEPTED and become eligible for publication.",
+    ACCEPT: "Once the Program Chair approves it, the paper will be marked ACCEPTED and become eligible for publication.",
     REJECT: "The paper will be marked REJECTED. The author cannot revise it further.",
-    MINOR_REVISION: "A minor revision request will be sent to the author.",
-    MAJOR_REVISION: "A major revision request will be sent to the author.",
+    MINOR_REVISION: "Once the Program Chair approves it, a minor revision request will be sent to the author.",
+    MAJOR_REVISION: "Once the Program Chair approves it, a major revision request will be sent to the author.",
   }[decision];
+  const chair = needsChair(decision);
 
   return (
     <div className="mt-3 space-y-3">
@@ -212,19 +247,21 @@ function DecisionForm({ paperId, draft, submittedReviews, onDone }) {
       {msg && <p className="text-xs text-muted">{msg}</p>}
       {confirming ? (
         <div className="rounded-lg border border-warn/30 bg-warn-soft px-3 py-3 text-sm">
-          Communicate this decision to the author? {effect} A communicated decision can&apos;t be changed.
+          {chair
+            ? <>Send this decision to the Program Chair for final approval? {effect} It is locked while the Program Chair reviews it.</>
+            : <>Communicate this decision to the author? {effect} A communicated decision can&apos;t be changed.</>}
           <div className="mt-2 flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => setConfirming(false)} disabled={busy}>Cancel</Button>
-            <Button variant="primary" size="sm" onClick={communicate} disabled={busy}>{busy ? "Sending…" : "Communicate decision"}</Button>
+            <Button variant="primary" size="sm" onClick={communicate} disabled={busy}>{busy ? "Sending…" : chair ? "Send for approval" : "Communicate decision"}</Button>
           </div>
         </div>
       ) : (
         <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" size="sm" onClick={save} disabled={busy || !decision}>{busy ? "Saving…" : saved ? "Save changes" : "Save draft"}</Button>
-          <Button variant="primary" size="sm" onClick={() => setConfirming(true)} disabled={busy || !saved || dirty}>Communicate to author</Button>
+          <Button variant="primary" size="sm" onClick={() => setConfirming(true)} disabled={busy || !saved || dirty}>{chair ? "Send to Program Chair" : "Communicate to author"}</Button>
         </div>
       )}
-      {saved && dirty && <p className="text-right text-[11px] text-muted">Save your changes before communicating.</p>}
+      {saved && dirty && <p className="text-right text-[11px] text-muted">Save your changes before {chair ? "sending" : "communicating"}.</p>}
     </div>
   );
 }

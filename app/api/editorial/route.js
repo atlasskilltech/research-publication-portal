@@ -41,12 +41,14 @@ export async function GET() {
     if (!papers.length) return NextResponse.json({ scope: me.isAdmin ? "all" : "editor", summary: emptySummary(), papers: [], editors: [] });
 
     const ids = papers.map((p) => p.id);
-    const [assigns, reviews, decisions, revisions] = await Promise.all([
+    const [assigns, reviews, decisions, revisions, pendingApprovals] = await Promise.all([
       db.query(`SELECT paper_id, assignee, role, due_at FROM \`${T.paperAssignments}\` WHERE paper_id IN (?)`, [ids]),
       db.query(`SELECT paper_id, reviewer, round, status FROM \`${T.reviews}\` WHERE paper_id IN (?)`, [ids]),
-      db.query(`SELECT paper_id, round, decision, released_at, updated_at FROM \`${T.editorialDecisions}\` WHERE paper_id IN (?)`, [ids]),
+      db.query(`SELECT id, paper_id, round, decision, released_at, updated_at FROM \`${T.editorialDecisions}\` WHERE paper_id IN (?)`, [ids]),
       db.query(`SELECT paper_id, round, revision_type, status, due_at FROM \`${T.paperRevisions}\` WHERE paper_id IN (?)`, [ids]),
+      db.query(`SELECT decision_id FROM \`${T.decisionApprovals}\` WHERE paper_id IN (?) AND status = 'PENDING'`, [ids]),
     ]);
+    const awaitingChair = new Set(pendingApprovals.map((a) => a.decision_id));
 
     const editorIds = [...new Set(assigns.filter((a) => a.role === "EDITOR").map((a) => a.assignee))];
     const nameById = new Map();
@@ -100,6 +102,7 @@ export async function GET() {
               decision: latestDec.decision,
               label: DECISION_LABEL[latestDec.decision],
               released: !!latestDec.released_at,
+              awaitingApproval: !latestDec.released_at && awaitingChair.has(latestDec.id),
               at: latestDec.released_at || latestDec.updated_at,
             }
           : null,

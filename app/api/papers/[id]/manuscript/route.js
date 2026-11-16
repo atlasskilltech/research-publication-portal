@@ -1,5 +1,5 @@
-// Authenticated manuscript download. Only the owner, an admin, or an assigned
-// reviewer may fetch the file. The bytes are read from the private server
+// Authenticated manuscript download. Only the owner, an admin, an assigned
+// reviewer, or the Program Chair (while a decision awaits approval) may fetch the file. The bytes are read from the private server
 // filesystem (never a public URL); the filesystem path is never exposed.
 // Reviewers receive a neutral, identity-free filename (double-blind).
 //
@@ -27,7 +27,10 @@ export async function GET(request, { params }) {
   try {
     const ctx = await loadPaperContext(db, id, me);
     if (!ctx) return NextResponse.json({ error: "Not found." }, { status: 404 });
-    const privileged = me.isAdmin || ctx.isOwner;
+    // The Program Chair may read the manuscript (with its real filename — the
+    // chair sees author names) while a decision on it awaits final approval.
+    const approverView = !!me.isProgramChair && !ctx.isOwner && ctx.approvals.some((a) => a.status === "PENDING");
+    const privileged = me.isAdmin || ctx.isOwner || approverView;
     if (!privileged && !ctx.isAssigned) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
     const all = await db.query(

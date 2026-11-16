@@ -17,7 +17,7 @@ import { getSessionUser } from "@/lib/session";
 import { db, T } from "@/lib/db";
 import { uuid } from "@/lib/auth/crypto.mjs";
 import { findUserById, countAdmins, rolesFor, setUserRoles, deleteUser, setUserStatus, userHistory, ROLES } from "@/lib/repos/users.mjs";
-import { protectedAdminEmails } from "@/lib/config/env";
+import { protectedAdminEmails, programChairEmails } from "@/lib/config/env";
 import { canDeleteUser, canSetStatus, deletionHistoryBlock } from "@/lib/adminGuards";
 
 export const runtime = "nodejs";
@@ -32,6 +32,7 @@ function mapRoleError(message) {
   if (m.includes("RPP_LAST_ADMIN")) return { status: 409, error: "Can't remove the last administrator." };
   if (m.includes("RPP_NOT_FOUND")) return { status: 404, error: "User not found." };
   if (m.includes("RPP_INVALID_ROLE")) return { status: 422, error: "One or more roles are not permitted." };
+  if (m.includes("RPP_CHAIR_NOT_ALLOWED")) return { status: 422, error: "Program Chair is reserved for the approved account and can't be given to this user." };
   if (m.includes("RPP_AUTHOR_ROLES")) return { status: 422, error: "External authors (AIDC 2026) are submitters only and can't be given portal roles." };
   if (m.includes("RPP_INVALID_STATUS")) return { status: 422, error: "Status must be ACTIVE or DISABLED." };
   if (m.includes("RPP_HAS_HISTORY")) return { status: 409, error: "This account has history and can't be deleted. Disable it instead." };
@@ -79,7 +80,7 @@ export async function PATCH(request, { params }) {
     // Roles + isAdmin sync + (if EDITOR is removed) dropping the per-paper editor
     // assignments commit together or not at all. base_type is never touched.
     await db.transaction(async (tx) => {
-      await setUserRoles(tx, { actorId: me.id, targetId: id, roles, protectedEmails: protectedAdminEmails() });
+      await setUserRoles(tx, { actorId: me.id, targetId: id, roles, protectedEmails: protectedAdminEmails(), programChairEmails: programChairEmails() });
       // Removing the EDITOR role also ends their per-paper editor assignments —
       // otherwise they would keep decision/publication powers on those papers.
       if (!roles.includes("EDITOR")) {

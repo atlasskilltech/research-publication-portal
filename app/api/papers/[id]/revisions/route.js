@@ -103,6 +103,9 @@ export async function POST(request, { params }) {
     const { id: decisionId, version, round } = saved.body.decision;
     const released = await releaseDecision(id, me, decisionId, version);
     if (released.status !== 200) return NextResponse.json(released.body, { status: released.status });
+    // Revision decisions go to the Program Chair first; the revision request
+    // reaches the author only once approved.
+    if (released.body?.pendingApproval) return NextResponse.json({ ok: true, pendingApproval: true, decisionId }, { status: 202 });
     return NextResponse.json({ ok: true, round: round + 1, decisionId }, { status: 201 });
   } catch (e) {
     console.error("revisions POST:", e?.code || e?.message);

@@ -77,7 +77,7 @@ export default function RevisionManager({ paperId, onChanged }) {
 
       {!open && revData.paperStatus === "UNDER_REVIEW" && (
         <p className="mt-3 border-t border-line pt-3 text-xs text-muted">
-          To request a revision, choose <b>Minor revision</b> or <b>Major revision</b> in the Editorial decision panel and communicate it.
+          To request a revision, choose <b>Minor revision</b> or <b>Major revision</b> in the Editorial decision panel and send it to the Program Chair. It reaches the author once approved.
           {submittedReviews.length === 0 && " (At least one submitted review is needed first.)"}
         </p>
       )}

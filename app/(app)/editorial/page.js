@@ -101,7 +101,9 @@ export default function EditorialPage() {
       render: (p) => p.decision ? (
         <span className="flex flex-wrap items-center gap-1">
           <DecisionBadge decision={p.decision.decision} />
-          {!p.decision.released && <Badge className="bg-warn-soft text-warn border-warn/30">draft</Badge>}
+          {!p.decision.released && (p.decision.awaitingApproval
+            ? <Badge className="bg-warn-soft text-warn border-warn/30">with Program Chair</Badge>
+            : <Badge className="bg-warn-soft text-warn border-warn/30">draft</Badge>)}
           <span className="text-xs text-muted">{new Date(p.decision.at).toLocaleDateString()}</span>
         </span>
       ) : <span className="text-xs text-muted">—</span>,

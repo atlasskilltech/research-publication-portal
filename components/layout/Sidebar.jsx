@@ -30,6 +30,12 @@ function NavLinks({ onNavigate }) {
     items.push({ label: "Publications", href: "/publications/manage", icon: "papers" });
   }
 
+  // The Program Chair gets "Final Approvals" whatever their base role
+  // (the page and API re-check the role + allowlisted email server-side).
+  if ((roles || []).includes("PROGRAM_CHAIR") && !items.some((i) => i.href === "/approvals")) {
+    items.push({ label: "Final Approvals", href: "/approvals", icon: "shield" });
+  }
+
   // Highlight only the most specific match (so /publications/manage doesn't
   // also light up "Published" at /publications).
   const matches = (href) => pathname === href || pathname.startsWith(href + "/");

@@ -18,6 +18,7 @@ const ROLE_DEFS = [
   { value: "DESK_REVIEWER", label: "Desk Reviewer" },
   { value: "PEER_REVIEWER", label: "Peer Reviewer" },
   { value: "EDITOR", label: "Editor" },
+  { value: "PROGRAM_CHAIR", label: "Program Chair", note: "Final approval of Accept / Revision decisions" },
 ];
 const ROLE_LABEL = Object.fromEntries(ROLE_DEFS.map((r) => [r.value, r.label]));
 
@@ -34,8 +35,9 @@ function matchesSearch(u, q) {
 }
 const sameSet = (a, b) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
 
-export default function UsersAdmin({ meId, protectedEmails = [] }) {
+export default function UsersAdmin({ meId, protectedEmails = [], chairEmails = [] }) {
   const protectedSet = useMemo(() => new Set((protectedEmails || []).map((e) => String(e).toLowerCase())), [protectedEmails]);
+  const chairSet = useMemo(() => new Set((chairEmails || []).map((e) => String(e).toLowerCase())), [chairEmails]);
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +73,8 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
   const isSelf = (u) => u?.id === meId;
   const isLastAdmin = (u) => u?.isAdmin && u?.status !== "DISABLED" && activeAdminCount <= 1;
   const isDisabled = (u) => u?.status === "DISABLED";
+  // Program Chair is reserved for the approved account(s); the server enforces it too.
+  const chairAllowed = (u) => chairSet.has((u?.email || "").toLowerCase());
 
   function openManage(u) {
     setManage(u);
@@ -90,6 +94,7 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
   function toggleRole(role) {
     if (rolesLockedForSelf) return;
     if (role === "ADMINISTRATOR" && adminBoxDisabled) return;
+    if (role === "PROGRAM_CHAIR" && !chairAllowed(manage) && !draftRoles.has("PROGRAM_CHAIR")) return;
     setDraftRoles((prev) => { const n = new Set(prev); n.has(role) ? n.delete(role) : n.add(role); return n; });
   }
 
@@ -232,7 +237,8 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
                 {ROLE_DEFS.map((r) => {
                   const checked = draftRoles.has(r.value);
                   // External authors (AIDC 2026) can't hold roles — the server refuses it too.
-                  const disabled = rolesLockedForSelf || manage.baseType === "AUTHOR" || (r.value === "ADMINISTRATOR" && adminBoxDisabled);
+                  const disabled = rolesLockedForSelf || manage.baseType === "AUTHOR" || (r.value === "ADMINISTRATOR" && adminBoxDisabled)
+                    || (r.value === "PROGRAM_CHAIR" && !checked && !chairAllowed(manage));
                   return (
                     <label key={r.value} className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-sm",
                       disabled ? "border-line bg-soft-2/50 opacity-60" : "border-line hover:bg-soft cursor-pointer",
@@ -247,6 +253,9 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
                 })}
               </div>
               {rolesLockedForSelf && <p className="mt-2 text-xs text-muted">You can&apos;t modify your own roles.</p>}
+              {!rolesLockedForSelf && manage.baseType !== "AUTHOR" && !chairAllowed(manage) && !draftRoles.has("PROGRAM_CHAIR") && (
+                <p className="mt-2 text-xs text-muted">Program Chair is reserved for the approved account.</p>
+              )}
               {manage.baseType === "AUTHOR" && <p className="mt-2 text-xs text-muted">External authors (AIDC 2026) are submitters only and can&apos;t be given portal roles.</p>}
               {!rolesLockedForSelf && manage.isAdmin && (isProtected(manage) || isLastAdmin(manage)) && (
                 <p className="mt-2 text-xs text-muted">{isProtected(manage) ? "Administrator can't be removed from a protected original admin." : "Administrator can't be removed from the last administrator."}</p>
@@ -285,7 +294,7 @@ export default function UsersAdmin({ meId, protectedEmails = [] }) {
             </div>
 
             {actionError && <p className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">{actionError}</p>}
-            <p className="rounded-lg bg-soft-2 px-3 py-2 text-xs text-muted">Roles make a person eligible for paper assignments: reviewers can be assigned to review papers, and editors can be assigned as a paper&apos;s editor (decisions and publication) and open the Editorial and Publications dashboards. Removing the Editor role also ends their paper-editor assignments.</p>
+            <p className="rounded-lg bg-soft-2 px-3 py-2 text-xs text-muted">Roles make a person eligible for paper assignments: reviewers can be assigned to review papers, and editors can be assigned as a paper&apos;s editor (decisions and publication) and open the Editorial and Publications dashboards. Removing the Editor role also ends their paper-editor assignments. The Program Chair gives final approval to every Accept / Revision decision before it reaches the author.</p>
           </div>
         )}
 

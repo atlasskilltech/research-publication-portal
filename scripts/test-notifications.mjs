@@ -13,7 +13,7 @@ console.log("\nEvery event builds a complete email:");
 for (const ev of Object.values(EVENTS)) {
   const m = buildNotification(ev, base);
   check(`${ev}`, !!m && m.subject && m.html.includes("Graph methods") && m.text.includes("Graph methods") && m.purpose.startsWith("notify_") && m.key, m ? "" : "null");
-  check(`${ev} has an audience`, ["author", "reviewers", "managers", "assignee"].includes(AUDIENCE[ev]));
+  check(`${ev} has an audience`, ["author", "reviewers", "managers", "assignee", "approvers"].includes(AUDIENCE[ev]));
 }
 check("unknown event → null", buildNotification("NOPE", base) === null);
 

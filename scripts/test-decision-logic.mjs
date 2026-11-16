@@ -26,7 +26,9 @@ const fnBody = (name) => {
   return end < 0 ? "" : wf.slice(i, end + 2);
 };
 const save = fnBody("saveEditorialDecision");
-const release = fnBody("releaseEditorialDecision");
+// Releasing is split into: lock + validate (lockDecisionForRelease), the
+// Program-Chair gate (releaseEditorialDecision) and the effect (applyReleaseTx).
+const release = fnBody("releaseEditorialDecision") + fnBody("lockDecisionForRelease") + fnBody("applyReleaseTx");
 const lockPaperBody = fnBody("lockPaper");
 const isManagerBody = fnBody("isManager");
 

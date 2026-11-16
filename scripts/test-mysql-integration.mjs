@@ -100,7 +100,7 @@ try {
   const engines = await db.query("SELECT table_name AS n, engine AS e, table_collation AS c FROM information_schema.tables WHERE table_schema = DATABASE()");
   check("every table is InnoDB + utf8mb4", engines.length >= 18 && engines.every((t) => t.e === "InnoDB" && /^utf8mb4/.test(t.c)), engines.filter((t) => t.e !== "InnoDB").map((t) => t.n).join());
   const fks = Number((await db.one("SELECT COUNT(*) AS n FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE()")).n);
-  check("all 33 foreign keys created (5 auth, 18 workflow, 9 publication, 1 author profile)", fks === 33, `${fks}`);
+  check("all 37 foreign keys created (5 auth, 18 workflow, 9 publication, 1 author profile, 4 approvals)", fks === 37, `${fks}`);
   const when = new Date("2026-03-04T05:06:07.089Z");
   await db.exec(`INSERT INTO \`${T.oauthStates}\` (state_hash, nonce, code_verifier, next_path, expires_at) VALUES (?, 'n', 'v', '/', ?)`, ["0".repeat(64), when]);
   const rt = await db.one(`SELECT expires_at AS d, created_at AS c, CAST(? AS DATE) AS dd FROM \`${T.oauthStates}\` WHERE state_hash = ?`, ["2026-03-04", "0".repeat(64)]);
@@ -204,6 +204,24 @@ try {
   const roleRows = await db.query(`SELECT r.user_id FROM \`${T.userRoles}\` r JOIN \`${T.users}\` u ON u.id = r.user_id WHERE r.role = 'ADMINISTRATOR' AND u.isAdmin = 0`);
   check("ADMINISTRATOR role rows always mirror isAdmin", roleRows.length === 0);
   check("user listing returns roles", (await listUsersWithRoles(db)).find((u) => u.id === reviewer2).roles.join() === "DESK_REVIEWER,PEER_REVIEWER");
+
+  // Program Chair: only an allowlisted email can be GIVEN the role, only by an admin.
+  const CHAIR_EMAILS = ["chair@atlasuniversity.edu.in"];
+  const chair = await mk("chair@atlasuniversity.edu.in", { baseType: "FACULTY" });
+  const notChair = await mk("not.chair@atlasuniversity.edu.in", { baseType: "FACULTY" });
+  const chairRoles = (actor, target, r) => db.transaction((tx) => setUserRoles(tx, { actorId: actor, targetId: target, roles: r, programChairEmails: CHAIR_EMAILS }));
+  check("PROGRAM_CHAIR for a non-allowlisted email → CHAIR_NOT_ALLOWED", (await rpp(chairRoles(lastAdmin, notChair, ["PROGRAM_CHAIR"]))) === "CHAIR_NOT_ALLOWED");
+  check("PROGRAM_CHAIR with an empty allowlist → CHAIR_NOT_ALLOWED", (await rpp(roles(lastAdmin, chair, ["PROGRAM_CHAIR"]))) === "CHAIR_NOT_ALLOWED");
+  check("non-admin cannot grant PROGRAM_CHAIR → FORBIDDEN", (await rpp(chairRoles(editor, chair, ["PROGRAM_CHAIR"]))) === "FORBIDDEN");
+  const cr = await chairRoles(lastAdmin, chair, ["PROGRAM_CHAIR"]);
+  check("admin grants PROGRAM_CHAIR to the allowlisted email (not an admin)", cr.roles.join() === "PROGRAM_CHAIR" && cr.is_admin === false);
+  check("chair keeps the role when other roles change (no re-check on keep)", (await roles(lastAdmin, chair, ["PROGRAM_CHAIR", "PEER_REVIEWER"])).roles.join() === "PEER_REVIEWER,PROGRAM_CHAIR");
+  await chairRoles(lastAdmin, chair, ["PROGRAM_CHAIR"]);
+  check("isApprover: chair on the allowlist → yes", await wf.isApprover(db, chair, CHAIR_EMAILS));
+  check("isApprover: chair whose email left the allowlist → no", !(await wf.isApprover(db, chair, ["someone.else@atlasuniversity.edu.in"])));
+  check("isApprover: allowlisted email WITHOUT the role → no", !(await wf.isApprover(db, notChair, ["not.chair@atlasuniversity.edu.in"])));
+  check("isApprover: administrator (backup) → yes", await wf.isApprover(db, lastAdmin, []));
+  check("isApprover: editor → no", !(await wf.isApprover(db, editor, CHAIR_EMAILS)));
   // Re-promote so the workflow has an admin besides lastAdmin.
   const manager = lastAdmin;
 
@@ -248,13 +266,49 @@ try {
   const d2 = await dec(editor, { summary: "Please revise (v2)" });
   check("re-saving bumps the version", d2.id === d1.id && d2.version === 2);
   check("release with a stale version → STALE", (await rpp(wf.releaseEditorialDecision(db, { paperId, actorId: editor, decisionId: d1.id, expectedVersion: 1 }))) === "STALE");
-  const rel = await Promise.all([1, 2].map(() => rpp(wf.releaseEditorialDecision(db, { paperId, actorId: editor, decisionId: d1.id, expectedVersion: 2 }))));
-  check("two concurrent releases → exactly one communicates", rel.filter((x) => x === "OK").length === 1, rel.join());
+  check("editor cannot communicate a revision decision directly → NEEDS_APPROVAL", (await rpp(wf.releaseEditorialDecision(db, { paperId, actorId: editor, decisionId: d1.id, expectedVersion: 2 }))) === "NEEDS_APPROVAL");
+  check("…and nothing changed (paper still UNDER_REVIEW, decision unreleased)", (await db.one(`SELECT status FROM \`${T.papers}\` WHERE id = ?`, [paperId])).status === "UNDER_REVIEW" && !(await db.one(`SELECT released_at FROM \`${T.editorialDecisions}\` WHERE id = ?`, [d1.id])).released_at);
+  const askApproval = (who, v = 2) => wf.requestDecisionApproval(db, { paperId, actorId: who, decisionId: d1.id, expectedVersion: v });
+  check("reviewer cannot send for approval → FORBIDDEN", (await rpp(askApproval(reviewer))) === "FORBIDDEN");
+  check("send for approval with a stale version → STALE", (await rpp(askApproval(editor, 1))) === "STALE");
+  const asks = await Promise.all([1, 2].map(() => rpp(askApproval(editor))));
+  check("two concurrent 'send to chair' → exactly one request", asks.filter((x) => x === "OK").length === 1 && asks.includes("APPROVAL_PENDING"), asks.join());
+  const ap1 = await db.one(`SELECT * FROM \`${T.decisionApprovals}\` WHERE decision_id = ? AND status = 'PENDING'`, [d1.id]);
+  check("approval request stored PENDING with the decision + version", ap1 && ap1.decision === "MAJOR_REVISION" && ap1.decision_version === 2 && ap1.requested_by === editor);
+  check("decision is locked while pending → APPROVAL_PENDING", (await rpp(dec(editor, { summary: "sneaky edit" }))) === "APPROVAL_PENDING");
+  const act = (fn, who, comment, emails = CHAIR_EMAILS, id = ap1.id) => fn(db, { approvalId: id, actorId: who, chairEmails: emails, comment });
+  check("editor cannot approve → FORBIDDEN", (await rpp(act(wf.approveDecision, editor))) === "FORBIDDEN");
+  check("allowlisted email without the role cannot approve → FORBIDDEN", (await rpp(act(wf.approveDecision, notChair, "", ["not.chair@atlasuniversity.edu.in"]))) === "FORBIDDEN");
+  check("chair removed from the allowlist cannot approve → FORBIDDEN", (await rpp(act(wf.approveDecision, chair, "", []))) === "FORBIDDEN");
+  check("send back needs a comment → NO_COMMENT", (await rpp(act(wf.returnDecision, chair, "  "))) === "NO_COMMENT");
+  const back = await act(wf.returnDecision, chair, "Please make the deadline longer.");
+  check("chair sends it back → RETURNED with comment, nothing released", back.decision === "MAJOR_REVISION"
+    && (await db.one(`SELECT status, comment, acted_by FROM \`${T.decisionApprovals}\` WHERE id = ?`, [ap1.id])).status === "RETURNED"
+    && (await db.one(`SELECT status FROM \`${T.papers}\` WHERE id = ?`, [paperId])).status === "UNDER_REVIEW");
+  check("a handled request can't be acted on again → APPROVAL_DONE", (await rpp(act(wf.approveDecision, chair))) === "APPROVAL_DONE");
+  const d3 = await dec(editor, { summary: "Please revise (v3)", dueAt: "2027-02-01T00:00:00Z" });
+  check("editor can edit again after send-back (version 3)", d3.version === 3);
+  const req2 = await askApproval(editor, 3);
+  check("editor re-sends the edited decision to the chair", !!req2.approvalId);
+  check("the paper's author can't approve → FORBIDDEN", (await rpp(act(wf.approveDecision, author, "", [], req2.approvalId))) === "FORBIDDEN");
+  const both2 = await Promise.all([rpp(act(wf.approveDecision, chair, "ok", CHAIR_EMAILS, req2.approvalId)), rpp(act(wf.returnDecision, lastAdmin, "no", [], req2.approvalId))]);
+  check("concurrent approve + send back → exactly one wins", both2.filter((x) => x === "OK").length === 1 && both2.includes("APPROVAL_DONE"), both2.join());
+  const approvedFirst = both2[0] === "OK";
+  if (!approvedFirst) {
+    // The admin's send-back won the race: send again and let the chair approve.
+    const req3 = await askApproval(editor, 3);
+    await act(wf.approveDecision, chair, "ok", CHAIR_EMAILS, req3.approvalId);
+  }
+  check("approved → status APPROVED by the chair", !!(await db.one(`SELECT 1 AS x FROM \`${T.decisionApprovals}\` WHERE decision_id = ? AND status = 'APPROVED' AND acted_by = ?`, [d1.id, chair])));
   const p1 = await db.one(`SELECT status, current_round FROM \`${T.papers}\` WHERE id = ?`, [paperId]);
   const rev1 = jrow(await db.one(`SELECT * FROM \`${T.paperRevisions}\` WHERE paper_id = ?`, [paperId]));
   check("MAJOR_REVISION → paper REVISION + revision round 1 with released review ids", p1.status === "REVISION" && rev1.round === 1 && rev1.revision_type === "MAJOR" && rev1.review_ids.join() === review0 && Array.isArray(rev1.responses));
   const dRow = await db.one(`SELECT released_at, revision_id FROM \`${T.editorialDecisions}\` WHERE id = ?`, [d1.id]);
   check("decision marked released and linked to the revision", !!dRow.released_at && dRow.revision_id === rev1.id);
+  check("approved revision keeps the editor's text + deadline (chair can't change it)", rev1.instructions === "Please revise (v3)" && rev1.due_at === "2027-02-01T00:00:00.000Z" && rev1.requested_by === editor);
+  check("released_by records the approver", (await db.one(`SELECT released_by FROM \`${T.editorialDecisions}\` WHERE id = ?`, [d1.id])).released_by === chair);
+  const chairActs = (await db.query(`SELECT action FROM \`${T.paperActivity}\` WHERE paper_id = ? ORDER BY created_at, action`, [paperId])).map((r) => r.action);
+  check("activity: APPROVAL_REQUESTED, DECISION_RETURNED, DECISION_APPROVED, DECISION_COMMUNICATED logged", ["APPROVAL_REQUESTED", "DECISION_RETURNED", "DECISION_APPROVED", "DECISION_COMMUNICATED"].every((a) => chairActs.includes(a)), chairActs.join());
   check("communicated decision is immutable → DECISION_EXISTS", (await rpp(dec(manager))) !== "OK");
   check("second open revision impossible → OPEN_REVISION/NOT_UNDER_REVIEW", ["OPEN_REVISION", "NOT_UNDER_REVIEW"].includes(await rpp(wf.requestPaperRevision(db, { paperId, actorId: editor, type: "MINOR", instructions: "x", reviewIds: [review0] }))));
 
@@ -277,9 +331,16 @@ try {
 
   const review1 = uuid();
   await submitReview(review1, 1, "ACCEPT");
+  // Reject never needs approval: draft a REJECT, check, then switch to ACCEPT.
+  const rej = await wf.saveEditorialDecision(db, { paperId, actorId: editor, decision: "REJECT", summary: "No", reviewIds: [review1] });
+  check("REJECT can't be sent to the chair → NO_APPROVAL_NEEDED", (await rpp(wf.requestDecisionApproval(db, { paperId, actorId: editor, decisionId: rej.id, expectedVersion: rej.version }))) === "NO_APPROVAL_NEEDED");
   const acc = await wf.saveEditorialDecision(db, { paperId, actorId: editor, decision: "ACCEPT", summary: "Accepted", reviewIds: [review1] });
-  await wf.releaseEditorialDecision(db, { paperId, actorId: editor, decisionId: acc.id, expectedVersion: acc.version });
-  check("ACCEPT released → paper ACCEPTED", (await db.one(`SELECT status FROM \`${T.papers}\` WHERE id = ?`, [paperId])).status === "ACCEPTED");
+  check("ACCEPT can't be communicated directly → NEEDS_APPROVAL", (await rpp(wf.releaseEditorialDecision(db, { paperId, actorId: editor, decisionId: acc.id, expectedVersion: acc.version }))) === "NEEDS_APPROVAL");
+  const accReq = await wf.requestDecisionApproval(db, { paperId, actorId: editor, decisionId: acc.id, expectedVersion: acc.version });
+  check("ACCEPT still UNDER_REVIEW while waiting for the chair", (await db.one(`SELECT status FROM \`${T.papers}\` WHERE id = ?`, [paperId])).status === "UNDER_REVIEW");
+  // Admin approves as the chair's backup.
+  await wf.approveDecision(db, { approvalId: accReq.approvalId, actorId: lastAdmin, chairEmails: [], comment: "" });
+  check("ACCEPT approved (admin backup) → paper ACCEPTED", (await db.one(`SELECT status FROM \`${T.papers}\` WHERE id = ?`, [paperId])).status === "ACCEPTED");
 
   // Publication
   section("Volumes, issues and publication");

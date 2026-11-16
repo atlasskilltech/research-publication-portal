@@ -20,7 +20,7 @@ const STATUS_CLS = {
   REJECTED: "bg-danger-soft text-danger border-danger/30",
   PUBLISHED: "bg-ok-soft text-ok border-ok/30",
 };
-const ROLE_LABEL = { ADMINISTRATOR: "Administrators", SPOC: "SPOC", DESK_REVIEWER: "Desk reviewers", PEER_REVIEWER: "Peer reviewers", EDITOR: "Editors" };
+const ROLE_LABEL = { ADMINISTRATOR: "Administrators", SPOC: "SPOC", DESK_REVIEWER: "Desk reviewers", PEER_REVIEWER: "Peer reviewers", EDITOR: "Editors", PROGRAM_CHAIR: "Program Chair" };
 
 function Section({ title, action, children }) {
   return (

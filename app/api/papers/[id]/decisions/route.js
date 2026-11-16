@@ -30,14 +30,17 @@ export async function GET(_request, { params }) {
     if (!ctx || (!ctx.canManage && !ctx.isOwner)) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
     if (ctx.canManage) {
-      const people = [...new Set(ctx.decisions.flatMap((d) => [d.decided_by, d.released_by]).filter(Boolean))];
+      const people = [...new Set([
+        ...ctx.decisions.flatMap((d) => [d.decided_by, d.released_by]),
+        ...ctx.approvals.flatMap((a) => [a.requested_by, a.acted_by]),
+      ].filter(Boolean))];
       const nameById = new Map();
       (await usersByIds(db, people)).forEach((p) => nameById.set(p.id, p.name || p.email));
       return NextResponse.json({
         view: "manager",
         paperStatus: ctx.paper.status,
         currentRound: ctx.paper.current_round,
-        decisions: ctx.decisions.map((d) => decisionForManager(d, nameById)),
+        decisions: ctx.decisions.map((d) => decisionForManager(d, nameById, ctx.approvals)),
       });
     }
 
