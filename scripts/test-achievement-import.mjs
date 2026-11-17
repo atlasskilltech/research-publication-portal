@@ -7,7 +7,7 @@ import {
   parseFlexibleDate, parseAmountText, mapSchool, mapAffiliation, extractUrls, driveFileId, splitNames, displayName,
   createNameIndex, cleanText, mapSheet, sourceKeyFor, istToUtc,
 } from "../lib/achievementImport.js";
-import { excelSerialToDate, decodeXml } from "./lib/xlsx.mjs";
+import { excelSerialToDate, decodeXml } from "../lib/xlsx.mjs";
 
 let failures = 0;
 const check = (l, ok, d = "") => { console.log(`  ${ok ? "✓" : "✗"} ${l}${d ? " — " + d : ""}`); if (!ok) failures++; };
