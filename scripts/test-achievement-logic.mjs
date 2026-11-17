@@ -7,7 +7,7 @@
  */
 import {
   ACHIEVEMENT_TYPES, ACHIEVEMENT_TYPE_KEYS, validateAchievement, validateFileCounts, detailPairs,
-  parseIsoDate, parseAmount, formatInr, formatDate, academicYearOf, academicYearRange, recentAcademicYears, achievementsCsv,
+  parseIsoDate, parseAmount, formatInr, formatDate, displayAchievementDate, academicYearOf, academicYearRange, recentAcademicYears, achievementsCsv,
 } from "../lib/achievementTypes.js";
 
 let failures = 0;
@@ -18,7 +18,7 @@ const v = (type, input) => validateAchievement(type, input, { today });
 console.log("\n=== Faculty achievements unit tests ===\n");
 
 console.log("Type definitions:");
-check("five types", ACHIEVEMENT_TYPE_KEYS.length === 5);
+check("eleven types", ACHIEVEMENT_TYPE_KEYS.length === 11);
 for (const k of ACHIEVEMENT_TYPE_KEYS) {
   const d = ACHIEVEMENT_TYPES[k];
   check(`${k}: has exactly one title column and one date column`, d.fields.filter((f) => f.column === "title").length === 1 && d.fields.filter((f) => f.column === "date").length === 1);
@@ -75,6 +75,22 @@ check("valid award", r.ok, JSON.stringify(r.issues || ""));
 r = v("FELLOWSHIP", { school: "ISDI", affiliation: "YES", values: { award_name: "x".repeat(301), agency: "A", date: "2026-01-01" } });
 check("over-long text rejected", !r.ok && r.issues.award_name);
 check("unknown type rejected", !validateAchievement("NOPE", {}).ok);
+
+
+console.log("\nNew types (007):");
+r = v("PAPER", { school: "uGDX", affiliation: "YES", values: { paper_title: "Radial distribution", authors: "A, B", authorship_position: "2", journal: "J Mol Model", year: "2023", listing: "Scopus Indexed" } });
+check("paper with a year → date YYYY-01-01 + year precision", r.ok && r.data.achievementDate === "2023-01-01" && r.data.details.date_precision === "year", JSON.stringify(r.issues || ""));
+check("…displayed as just the year", r.ok && displayAchievementDate({ achievementDate: r.data.achievementDate, details: r.data.details }) === "2023");
+r = v("PAPER", { school: "uGDX", affiliation: "YES", values: { paper_title: "x", authors: "A", authorship_position: "1", journal: "J", year: "2099", listing: "Scopus Indexed" } });
+check("future year rejected", !r.ok && r.issues.year);
+r = v("EVENT_ORGANIZED", { school: "ISDI", values: { event_title: "AIDC", category: "Conference", start_date: "2026-11-10", end_date: "2026-11-25" } });
+check("event organised: end date may be after today", r.ok, JSON.stringify(r.issues || ""));
+check("event organised: flyer + attendance optional, report required",
+  !Object.keys(validateFileCounts("EVENT_ORGANIZED", { report: 1 })).length && !!validateFileCounts("EVENT_ORGANIZED", { flyer: 1 }).file_report);
+r = v("PATENT", { school: "ISDI", affiliation: "YES", values: { ip_title: "Wireless Analyzer", ip_type: "Patent", application_no: "397580-001", status: "Granted", agency: "IPI", date: "2023-12-22", inventors: "S K Singh" } });
+check("patent valid (category optional)", r.ok, JSON.stringify(r.issues || ""));
+check("displayAchievementDate: null date shows the original text", displayAchievementDate({ achievementDate: null, details: { date_text: "Honorarium 2022" } }) === "Honorarium 2022" && displayAchievementDate({ achievementDate: null, details: {} }) === "—");
+check("import notes shown in details", detailPairs("AWARD", { award_title: "X", date_text: "March 2023" }).some((p) => p.key === "date_text" && p.value === "March 2023"));
 
 console.log("\nFile slots:");
 check("missing file flagged", validateFileCounts("PROFESSIONAL", {}).file_proof);

@@ -10,6 +10,7 @@ import Badge from "@/components/ui/Badge";
 import Spinner from "@/components/ui/Spinner";
 import { DecisionBadge } from "@/components/decisions/DecisionBadge";
 import { RevisionStatusBadge, TYPE_LABEL } from "@/components/revisions/RevisionStatusBadge";
+import DashboardProofNotice from "@/components/achievements/DashboardProofNotice";
 
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString() : "—");
 const STATUS_CLS = {
@@ -65,6 +66,8 @@ export default function DashboardPage() {
           ? `Submit your research papers for ${ext.conference} and follow their review here.`
           : "Your submissions, reviews and editorial work at a glance."}
         action={<Button href="/submit" variant="primary" size="sm">Submit a paper</Button>} />
+
+      {!ext && <DashboardProofNotice />}
 
       {ext && <AuthorProfileSection ext={ext} name={d.name} />}
 

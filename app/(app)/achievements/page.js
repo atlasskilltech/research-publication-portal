@@ -13,7 +13,7 @@ export default function MyAchievementsPage() {
       <PageHeader
         eyebrow="Faculty achievements"
         title="My achievements"
-        subtitle="Reviewer and board roles, awards, fellowships, consultancy and grants, each with proof attached. The administrator checks every entry."
+        subtitle="Papers, books, patents, awards, reviewer and board roles, events, fellowships, consultancy and grants, each with proof attached. Entries that name you (for example on a patent) appear here too."
         action={
           <div className="flex flex-wrap gap-2">
             {realRole === "administrator" && <Button href="/achievements/all" variant="outline">All achievements</Button>}

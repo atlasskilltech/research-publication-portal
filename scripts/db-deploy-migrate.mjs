@@ -99,6 +99,12 @@ try {
       if (tables.length !== 2) throw new Error("Achievements schema not present after 006");
       console.log("✓ Achievements schema verified (achievements, achievement files).");
     }
+    if (history.has("007_achievements_import.mjs")) {
+      const tables = await db.query("SELECT table_name AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN (?)", [[T.achievementLinks, T.achievementContributors, T.facultyProfiles]]);
+      const col = await db.one("SELECT column_type AS t FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'type'", [T.achievements]);
+      if (tables.length !== 3 || !/'EVENT_ORGANIZED'/.test(col?.t || "")) throw new Error("Achievements import schema not present after 007");
+      console.log("✓ Achievements import schema verified (new types, links, contributors, profiles).");
+    }
     console.log("✓ Migrations applied and verified.");
   }
 } catch (e) {

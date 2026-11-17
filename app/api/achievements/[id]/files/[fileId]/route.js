@@ -1,10 +1,10 @@
-// Download one proof document of an achievement — only its owner or an
-// Administrator. The served type comes from the server-made storage key,
+// Download one proof document of an achievement — only its owner, a
+// contributor named on it (matched by email), or an Administrator. The served type comes from the server-made storage key,
 // never from what the browser declared at upload time.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { db } from "@/lib/db";
-import { getAchievementFile } from "@/lib/repos/achievements.mjs";
+import { getAchievementFile, isContributor } from "@/lib/repos/achievements.mjs";
 import { mimeForStorageKey } from "@/lib/manuscriptFiles";
 import { readManuscript } from "@/lib/storage";
 
@@ -27,7 +27,10 @@ export async function GET(request, { params }) {
 
   try {
     const f = await getAchievementFile(db, id, fileId);
-    if (!f || (f.user_id !== me.id && !me.isAdmin)) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    if (!f) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    if (f.user_id !== me.id && !me.isAdmin && !(me.baseType !== "AUTHOR" && (await isContributor(db, id, me.email)))) {
+      return NextResponse.json({ error: "Not found." }, { status: 404 });
+    }
     const bytes = await readManuscript(f.storage_key);
     if (!bytes) return NextResponse.json({ error: "The file is missing from storage." }, { status: 404 });
     const mime = mimeForStorageKey(f.storage_key);
