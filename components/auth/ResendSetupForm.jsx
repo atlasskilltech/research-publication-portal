@@ -4,14 +4,22 @@ import { useState } from "react";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 
+const PURPOSES = {
+  setup: { endpoint: "/api/auth/resend", title: "Email me sign-in instructions", button: "Send instructions", placeholder: "name@atlasuniversity.edu.in" },
+  reset: { endpoint: "/api/auth/forgot-password", title: "Reset your password", button: "Send reset link", placeholder: "name@atlasuniversity.edu.in" },
+  "author-verify": { endpoint: "/api/register/author/resend", title: "Resend verification email", button: "Resend verification email", placeholder: "you@example.com" },
+};
+
 /**
- * "Email me sign-in instructions" (purpose "setup") or "Forgot password"
- * (purpose "reset"). The server always answers with the same neutral message,
- * whether or not the address has an account.
+ * "Email me sign-in instructions" (purpose "setup"), "Forgot password"
+ * (purpose "reset") or the external Author's "Resend verification email"
+ * (purpose "author-verify"). The server always answers with the same neutral
+ * message, whether or not the address has an account.
  */
-export default function ResendSetupForm({ compact = false, purpose = "setup" }) {
-  const endpoint = purpose === "reset" ? "/api/auth/forgot-password" : "/api/auth/resend";
-  const [email, setEmail] = useState("");
+export default function ResendSetupForm({ compact = false, purpose = "setup", defaultEmail = "" }) {
+  const cfg = PURPOSES[purpose] || PURPOSES.setup;
+  const endpoint = cfg.endpoint;
+  const [email, setEmail] = useState(defaultEmail);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { kind, text }
 
@@ -31,10 +39,10 @@ export default function ResendSetupForm({ compact = false, purpose = "setup" }) 
 
   return (
     <form onSubmit={onSubmit} className={compact ? "mt-4 space-y-3" : "mt-6 space-y-3 border-t border-line pt-5"} noValidate>
-      {!compact && <p className="text-sm font-semibold text-ink">{purpose === "reset" ? "Reset your password" : "Email me sign-in instructions"}</p>}
+      {!compact && <p className="text-sm font-semibold text-ink">{cfg.title}</p>}
       <Input label="Your registered email" name="email" type="email" autoComplete="email" required
-        value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@atlasuniversity.edu.in" />
-      <Button type="submit" variant="primary" full disabled={busy || !email}>{busy ? "Sending…" : purpose === "reset" ? "Send reset link" : "Send instructions"}</Button>
+        value={email} onChange={(e) => setEmail(e.target.value)} placeholder={cfg.placeholder} />
+      <Button type="submit" variant="primary" full disabled={busy || !email}>{busy ? "Sending…" : cfg.button}</Button>
       {msg && (
         <p role="status" className={`rounded-lg px-3 py-2 text-sm ${msg.kind === "ok" ? "bg-ok-soft text-ok" : "bg-danger-soft text-danger"}`}>{msg.text}</p>
       )}

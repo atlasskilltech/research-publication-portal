@@ -2,7 +2,8 @@
  * External AUTHOR (AIDC 2026) — HTTP checks against a RUNNING app (MySQL).
  *
  *   Registration  POST /api/register/author with password: account (Argon2id
- *                 hash) + profile + session; duplicate, invalid email/phone,
+ *                 hash) + profile, email NOT verified, NO session; login refused
+ *                 (403 email_unverified) until /auth/verify-email is used; duplicate, invalid email/phone,
  *                 missing fields, password rules, every current-status option.
  *   Login/reset   email + password login, wrong password, Forgot password for a
  *                 non-university Author, Google-era Author without a password.
@@ -22,7 +23,7 @@ import crypto from "node:crypto";
 import { makeHarness } from "./lib/test-db.mjs";
 import { sha256Hex } from "../lib/auth/crypto.mjs";
 import { hashPassword } from "../lib/auth/password.mjs";
-import { createAuthorUser, setPasswordHash } from "../lib/repos/users.mjs";
+import { createAuthorUser, setPasswordHash, markEmailVerified } from "../lib/repos/users.mjs";
 import { AUTHOR_STATUSES } from "../lib/authorRegistration.js";
 
 const h = makeHarness(process.argv[2]);
@@ -67,6 +68,7 @@ async function mkAuthor(kind) {
     designation: "Designer", location: "Mumbai, India",
   }));
   h.manifest.users.push(id);
+  await markEmailVerified(db, id); // as if the emailed verification link had been used
   const password = `It#${crypto.randomBytes(12).toString("base64url")}`;
   await setPasswordHash(db, id, await hashPassword(password));
   const br = h.browser();
@@ -91,7 +93,7 @@ async function main() {
   const email = extEmail("reg");
   const ok = await br.api("/api/register/author", { method: "POST", json: VALID(email.toUpperCase()) });
   const created = await h.track(email);
-  check("1. new Author registration with password → 201, → /dashboard", ok.status === 201 && ok.data?.ok === true && ok.data?.redirect === "/dashboard" && ok.data?.email === email, `${ok.status} ${JSON.stringify(ok.data)}`);
+  check("1. new Author registration with password → 201, verification required", ok.status === 201 && ok.data?.ok === true && !ok.data?.redirect && ok.data?.email === email, `${ok.status} ${JSON.stringify(ok.data)}`);
   check("…AUTHOR account created (email lower-cased), not admin, no roles", created?.base_type === "AUTHOR" && created.is_admin === false && !(await db.one(`SELECT role FROM \`${T.userRoles}\` WHERE user_id = ?`, [created.id])));
   const credRow = await db.one(`SELECT passwordHash FROM \`${T.users}\` WHERE id = ?`, [created?.id]);
   check("…password stored only as an Argon2id hash (never plaintext)", credRow?.passwordHash?.startsWith("$argon2id$") && !credRow.passwordHash.includes(PASSWORD));
@@ -100,10 +102,53 @@ async function main() {
   check("…no Google identity, no pending row, no registration cookie",
     !(await db.one(`SELECT 1 AS x FROM \`${T.userIdentities}\` WHERE user_id = ?`, [created?.id])) && !(await db.one(`SELECT 1 AS x FROM \`${T.authorRegistrations}\` WHERE email = ?`, [email]))
     && !(ok.res.headers.getSetCookie?.() || []).some((c) => c.startsWith("rpp_author_reg=")));
-  check("…signed in right away (existing session cookie)", br.jar.has("rpp_sid"));
-  const dashNew = await br.api("/api/dashboard");
-  check("…the new session opens the Author dashboard", dashNew.status === 200 && !!dashNew.data?.externalAuthor);
+  check("…NOT signed in (no session cookie) — email verification required", !br.jar.has("rpp_sid") && ok.data?.verificationRequired === true);
+  check("…email not verified yet", !(await db.one(`SELECT emailVerified AS v FROM \`${T.users}\` WHERE id = ?`, [created?.id]))?.v);
+  check("…a 24-hour INVITE verification token was issued",
+    Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.authTokens}\` WHERE user_id = ? AND purpose = 'INVITE' AND consumed_at IS NULL AND expires_at > UTC_TIMESTAMP(3) + INTERVAL 23 HOUR`, [created?.id]))?.n) === 1);
   check("…response never echoes the password", !JSON.stringify(ok.data).includes(PASSWORD));
+
+  console.log("\nBefore verification:");
+  const ub = h.browser();
+  const pre = await ub.api("/api/login", { method: "POST", json: { email, password: PASSWORD } });
+  check("login with the CORRECT password → 403 email_unverified, no session", pre.status === 403 && pre.data?.code === "email_unverified" && !ub.jar.has("rpp_sid"), `${pre.status} ${JSON.stringify(pre.data)}`);
+  const preWrong = await h.browser().api("/api/login", { method: "POST", json: { email, password: "Wrong#Password99" } });
+  check("…WRONG password → the generic 401 (unverified state not revealed)", preWrong.status === 401 && !preWrong.data?.code);
+  check("…app pages refuse the browser", (await ub.api("/api/dashboard")).status === 401);
+  const rs = await h.browser().api("/api/register/author/resend", { method: "POST", json: { email } });
+  check("Resend verification email → neutral 200", rs.status === 200 && rs.data?.ok === true);
+  const rsUnknown = await h.browser().api("/api/register/author/resend", { method: "POST", json: { email: extEmail("ghost") } });
+  check("…unknown address → the SAME neutral 200", rsUnknown.status === 200 && rsUnknown.data?.message === rs.data?.message);
+  check("…resend invalidated the old link (exactly one live token)",
+    Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.authTokens}\` WHERE user_id = ? AND purpose = 'INVITE' AND consumed_at IS NULL`, [created?.id]))?.n) === 1);
+
+  console.log("\nVerification link (/auth/verify-email):");
+  const vt = await h.token(created.id, "INVITE");
+  const vlink = await h.browser().req(`/auth/verify-email?token=${vt}`);
+  const vhtml = await vlink.text();
+  check("GET the link → 200 \"Verify your email\" page, nothing consumed (scanner-safe)", vlink.status === 200 && /Verify my email/.test(vhtml)
+    && Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.authTokens}\` WHERE token_hash = ? AND consumed_at IS NULL`, [sha256Hex(vt)]))?.n) === 1);
+  const badPage = await h.browser().req("/auth/verify-email?token=nothex");
+  check("…malformed token → \"can't be used\" page with a resend form", badPage.status === 200 && /can&#x27;t be used|can't be used/.test(await badPage.text()));
+  // Press "Verify my email" exactly like a no-JS browser (server-action form POST).
+  const vb = h.browser();
+  const vpage = await vb.req(`/auth/verify-email?token=${vt}`);
+  const actionId = ((await vpage.text()).match(/name="(\$ACTION_ID_[a-f0-9]+)"/) || [])[1];
+  const fd = new FormData();
+  if (actionId) fd.set(actionId, "");
+  fd.set("token", vt);
+  const vres = await vb.req(`/auth/verify-email?token=${vt}`, { method: "POST", body: fd });
+  check("…pressing \"Verify my email\" → redirect /dashboard + signed in", !!actionId && /\/dashboard$/.test(loc(vres)) && vb.jar.has("rpp_sid"), `${vres.status} → ${loc(vres)}`);
+  check("…email now verified", !!(await db.one(`SELECT emailVerified AS v FROM \`${T.users}\` WHERE id = ?`, [created.id]))?.v);
+  const dashNew = await vb.api("/api/dashboard");
+  check("…the session opens the Author dashboard", dashNew.status === 200 && !!dashNew.data?.externalAuthor);
+  const again = h.browser();
+  const ares = await again.req(`/auth/verify-email?token=${vt}`, { method: "POST", body: fd });
+  check("…the same link a second time → status=expired, no session", /status=expired/.test(loc(ares)) && !again.jar.has("rpp_sid"), `${ares.status} → ${loc(ares)}`);
+  check("…after verifying, email + password login works", (await h.browser().login(email, PASSWORD)) === 200);
+  const rsDone = await h.browser().api("/api/register/author/resend", { method: "POST", json: { email } });
+  check("…resend for an already-verified Author → neutral 200, no new token",
+    rsDone.status === 200 && Number((await db.one(`SELECT COUNT(*) AS n FROM \`${T.authTokens}\` WHERE user_id = ? AND purpose = 'INVITE' AND consumed_at IS NULL`, [created.id]))?.n) === 0);
 
   console.log("\nAuthor email + password login:");
   const lb = h.browser();

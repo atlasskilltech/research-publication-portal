@@ -4,6 +4,8 @@
 //
 // Response contract (unchanged; components/auth/LoginForm.jsx relies on it):
 //   200 { ok: true } | 401 { error } (generic) | 429 { error } | 500 { error }
+//   403 { error, code: "email_unverified" } — an AUTHOR with the CORRECT password
+//       whose email is not verified yet (the form offers "Resend verification email")
 // Unknown account, no password yet, unverified email, disabled account and wrong
 // password all return the SAME 401, and the unknown/no-password cases still run
 // a full hash verification so timing does not reveal which accounts exist.
@@ -15,6 +17,7 @@ import { verifyPassword, burnPasswordCheck, hashPassword } from "@/lib/auth/pass
 import { findCredentials, upgradePasswordHash, touchLastLogin } from "@/lib/repos/users.mjs";
 import { startSession } from "@/lib/auth/session";
 import { loginRateLimit, clientIp } from "@/lib/authServer";
+import { AUTHOR_UNVERIFIED_MESSAGE } from "@/lib/authorRegistration";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +40,14 @@ export async function POST(request) {
   try {
     const cred = await findCredentials(db, email);
     const usable = cred && cred.password_hash && cred.status === "ACTIVE" && cred.email_confirmed_at;
-    const check = usable ? await verifyPassword(cred.password_hash, password) : await burnPasswordCheck(password);
+    // An external Author who has not verified their email yet: only AFTER the
+    // correct password is proven do we say why (so this reveals nothing to
+    // someone guessing), and offer to resend the verification link.
+    const unverifiedAuthor = cred && cred.password_hash && cred.status === "ACTIVE" && !cred.email_confirmed_at && cred.base_type === "AUTHOR";
+    const check = usable || unverifiedAuthor ? await verifyPassword(cred.password_hash, password) : await burnPasswordCheck(password);
+    if (unverifiedAuthor && check.ok) {
+      return NextResponse.json({ error: AUTHOR_UNVERIFIED_MESSAGE, code: "email_unverified" }, { status: 403 });
+    }
     if (!usable || !check.ok) return invalid();
 
     if (check.needsRehash) {

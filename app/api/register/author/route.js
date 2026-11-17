@@ -1,24 +1,25 @@
 // External AUTHOR registration (AIDC – ATLAS International Design Conference 2026)
-// — email + password, one step. Rules: lib/authorRegistration.js (pure, unit-tested).
+// — email + password + email verification. Rules: lib/authorRegistration.js
+// (pure, unit-tested).
 //
 // Validates the form (7 profile fields + password + confirm), refuses an email
 // that already has an account, then in ONE transaction creates the AUTHOR
-// account (Argon2id hash — never plaintext; non-admin, no roles) and its
-// profile, starts an APP session (existing session system) and sends one
-// confirmation email via the existing SendGrid integration. No Google step.
+// account (Argon2id hash — never plaintext; non-admin, no roles; email NOT
+// verified) and its profile, and emails a single-use 24-hour verification
+// link. NO session is started: the Author can sign in only after opening the
+// link (/auth/verify-email). No Google step.
 //
 // Responses:
-//   201 { ok, email, emailSent, redirect: "/dashboard", message }   (+ session cookie)
+//   201 { ok, email, emailSent, verificationRequired: true, message }   (no session)
 //   409 { error, code: "exists", issues }   email already registered
 //   422 { error, issues }                   validation
 //   429 { error }                           rate limited (per IP / per email)
 //   500 { error }
 import { NextResponse } from "next/server";
 import { db, isDuplicate } from "@/lib/db";
-import { registerRateLimit, clientIp, sendAuthorRegistrationConfirmation } from "@/lib/authServer";
+import { registerRateLimit, clientIp, sendAuthorVerification } from "@/lib/authServer";
 import { findUserByEmail, createAuthorUser } from "@/lib/repos/users.mjs";
 import { hashPassword } from "@/lib/auth/password.mjs";
-import { startSession } from "@/lib/auth/session";
 import { registerAuthor, validateAuthorRegistration } from "@/lib/authorRegistration";
 
 export const runtime = "nodejs";
@@ -53,8 +54,7 @@ export async function POST(request) {
           throw e;
         }
       },
-      startSession: (userId) => startSession(userId, { purpose: "APP", method: "password" }),
-      sendConfirmation: sendAuthorRegistrationConfirmation,
+      sendVerification: sendAuthorVerification,
     });
     return NextResponse.json(result.body, { status: result.status });
   } catch (e) {

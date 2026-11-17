@@ -8,6 +8,7 @@ import Button from "@/components/ui/Button";
 import { GOOGLE_NOTICES } from "@/lib/authNotices";
 import { AUTHOR_STATUSES, CONFERENCE_NAME, validateAuthorRegistration } from "@/lib/authorRegistration";
 import { PASSWORD_MIN, passwordStrength } from "@/lib/passwordPolicy";
+import ResendSetupForm from "@/components/auth/ResendSetupForm";
 
 const STATUS_OPTIONS = [{ value: "", label: "Select your current status…" }, ...AUTHOR_STATUSES];
 const Req = ({ children }) => <>{children} <span className="text-accent">*</span></>;
@@ -15,8 +16,8 @@ const FIELDS = ["name", "email", "phone", "organization", "currentStatus", "desi
 
 /**
  * External AUTHOR registration (AIDC 2026): profile fields + password.
- * One step — the server creates the account (Argon2id hash), signs the user in
- * and sends a confirmation email. Authors sign in with email + password; Google
+ * The server creates the account (Argon2id hash) and emails a 24-hour
+ * verification link; the Author is NOT signed in until they open it. Authors sign in with email + password; Google
  * Sign-In is not available for them. Validation runs here for instant feedback
  * AND again on the server.
  */
@@ -24,7 +25,7 @@ export default function AuthorRegisterForm({ notice = "" }) {
   const [issues, setIssues] = useState({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState(null); // { email, message, emailSent }
   const [password, setPassword] = useState("");
   const noticeText = Object.hasOwn(GOOGLE_NOTICES, notice) ? GOOGLE_NOTICES[notice] : "";
   const strength = password ? passwordStrength(password) : null;
@@ -55,8 +56,8 @@ export default function AuthorRegisterForm({ notice = "" }) {
         setLoading(false);
         return;
       }
-      setDone(true);
-      window.location.assign(data.redirect || "/dashboard"); // signed in by the server
+      setDone({ email: data.email || v.data.email, message: data.message, emailSent: data.emailSent !== false });
+      setLoading(false);
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
@@ -65,8 +66,16 @@ export default function AuthorRegisterForm({ notice = "" }) {
 
   if (done) {
     return (
-      <div className="mt-5 rounded-xl border border-ok/30 bg-ok-soft px-4 py-3 text-sm text-ink" role="status">
-        Your Author account has been created. Taking you to your dashboard…
+      <div className="mt-5 space-y-4">
+        <div className={`rounded-xl border px-4 py-3 text-sm text-ink ${done.emailSent ? "border-ok/30 bg-ok-soft" : "border-warn/30 bg-warn-soft"}`} role="status">
+          <p className="font-semibold">{done.emailSent ? "Check your email to activate your account" : "Account created — verification email not sent"}</p>
+          <p className="mt-1">{done.message}</p>
+          {done.emailSent && <p className="mt-2 text-xs text-muted">We sent the link to <b className="text-ink">{done.email}</b>. It can take a few minutes to arrive; check your spam folder too.</p>}
+        </div>
+        <ResendSetupForm purpose="author-verify" defaultEmail={done.email} />
+        <p className="text-center text-sm text-muted">
+          Already verified? <Link href="/login" className="font-semibold text-accent hover:underline">Sign in</Link>
+        </p>
       </div>
     );
   }

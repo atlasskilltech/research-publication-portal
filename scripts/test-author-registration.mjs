@@ -16,13 +16,13 @@
 import { generateKeyPair, exportJWK, createLocalJWKSet, SignJWT } from "jose";
 import {
   validateAuthorRegistration, registerAuthor, AUTHOR_STATUSES, AUTHOR_STATUS_VALUES, CONFERENCE_NAME,
-  isValidPhone, AUTHOR_EXISTS_MESSAGE,
+  isValidPhone, AUTHOR_EXISTS_MESSAGE, verifyAuthorEmail, AUTHOR_VERIFY_MESSAGES, AUTHOR_VERIFY_SENT_MESSAGE, AUTHOR_VERIFY_NOT_SENT_MESSAGE,
 } from "../lib/authorRegistration.js";
 import {
   completeGoogleCallback, verifyIdTokenSignature, validateIdTokenClaims, decideAccount, buildAuthorizeUrl,
   GOOGLE_NOTICES, noticeForReason, GOOGLE_ALLOWED_DOMAIN, isPlainEmail,
 } from "../lib/oauthPolicy.js";
-import { deliverAuthorRegistrationConfirmed, deliverSignInInstructions } from "../lib/authMailer.js";
+import { deliverAuthorRegistrationConfirmed, deliverSignInInstructions, deliverAuthorVerification } from "../lib/authMailer.js";
 import { idempotencyKey } from "../lib/email/core.js";
 import { safeNextPath } from "../lib/authFlow.js";
 
@@ -87,29 +87,88 @@ section("Registration form validation (validateAuthorRegistration)");
   check("client cannot smuggle a role / admin flag (ignored)", (() => { const r = validateAuthorRegistration({ ...VALID, isAdmin: true, roles: ["ADMINISTRATOR"], baseType: "FACULTY" }); return r.ok && !("isAdmin" in r.data) && !("roles" in r.data) && !("baseType" in r.data); })());
 }
 
-section("Registration orchestration (registerAuthor) — account + session + one email");
+section("Registration orchestration (registerAuthor) — account + verification email, NO session");
 {
   const v = validateAuthorRegistration(VALID);
-  const log = { created: [], sessions: [], emails: [], passwords: [] };
-  const deps = (existing, { emailFails = false, race = false } = {}) => ({
+  const log = { created: [], verifications: [], passwords: [] };
+  const deps = (existing, { emailFails = false, emailNotOk = false, race = false } = {}) => ({
     findUserByEmail: async (e) => (existing && e === existing ? { id: "U-x", email: e } : null),
     createAuthor: async ({ data, password }) => {
       if (race) throw Object.assign(new Error("dup"), { duplicate: true });
       log.passwords.push(password); log.created.push(data.email); return `A-${log.created.length}`;
     },
-    startSession: async (id) => { log.sessions.push(id); },
-    sendConfirmation: async (m) => { log.emails.push(m); if (emailFails) throw new Error("smtp"); return { ok: true }; },
+    sendVerification: async (m) => { log.verifications.push(m); if (emailFails) throw new Error("smtp"); return { ok: !emailNotOk }; },
   });
   const ok = await registerAuthor(v.data, v.password, deps(null));
-  check("valid → 201, account created, signed in, → /dashboard", ok.status === 201 && ok.body.ok && ok.body.redirect === "/dashboard" && log.created.length === 1 && log.sessions[0] === "A-1");
-  check("exactly one confirmation email, to the registered address", log.emails.length === 1 && log.emails[0].email === "priya.menon@gmail.com" && ok.body.emailSent === true);
+  check("valid → 201, account created, verification required, no redirect into the app", ok.status === 201 && ok.body.ok && ok.body.verificationRequired === true && !ok.body.redirect && log.created.length === 1);
+  check("no startSession dependency at all — registering never signs in", !("startSession" in deps(null)));
+  check("exactly one verification email, for the new account, to the registered address", log.verifications.length === 1 && log.verifications[0].userId === "A-1" && log.verifications[0].email === "priya.menon@gmail.com" && ok.body.emailSent === true && ok.body.message === AUTHOR_VERIFY_SENT_MESSAGE);
   check("password handed only to createAuthor (for hashing), never in the response", log.passwords[0] === VALID.password && !JSON.stringify(ok.body).includes(VALID.password));
   const dup = await registerAuthor(v.data, v.password, deps(v.data.email));
-  check("duplicate email (existing account) → 409, nothing created, no session", dup.status === 409 && dup.body.code === "exists" && dup.body.error === AUTHOR_EXISTS_MESSAGE && log.created.length === 1 && log.sessions.length === 1);
+  check("duplicate email (existing account) → 409, nothing created, no email", dup.status === 409 && dup.body.code === "exists" && dup.body.error === AUTHOR_EXISTS_MESSAGE && log.created.length === 1 && log.verifications.length === 1);
   const race = await registerAuthor(v.data, v.password, deps(null, { race: true }));
-  check("unique-key race → 409, no session", race.status === 409 && log.sessions.length === 1);
+  check("unique-key race → 409, no email", race.status === 409 && log.verifications.length === 1);
   const mailFail = await registerAuthor(v.data, v.password, deps(null, { emailFails: true }));
-  check("email delivery failure never fails the registration", mailFail.status === 201 && mailFail.body.emailSent === false);
+  check("email delivery throwing never fails the registration (resend message shown)", mailFail.status === 201 && mailFail.body.emailSent === false && mailFail.body.message === AUTHOR_VERIFY_NOT_SENT_MESSAGE);
+  const mailNotOk = await registerAuthor(v.data, v.password, deps(null, { emailNotOk: true }));
+  check("provider refusing the email → 201, emailSent false", mailNotOk.status === 201 && mailNotOk.body.emailSent === false);
+}
+
+section("Email verification (verifyAuthorEmail) — single-use link → verified + signed in");
+{
+  const TOKEN = "a".repeat(64);
+  const mk = (result, { throws = false, confirmThrows = false } = {}) => {
+    const log = { consumed: [], sessions: [], confirmations: [] };
+    return {
+      log,
+      deps: {
+        consumeVerification: async (t) => { log.consumed.push(t); if (throws) throw new Error("db down"); return result; },
+        startSession: async (id) => { log.sessions.push(id); },
+        sendConfirmation: async (m) => { log.confirmations.push(m); if (confirmThrows) throw new Error("smtp"); return { ok: true }; },
+      },
+    };
+  };
+  let w = mk({ userId: "A-1" });
+  let r = await verifyAuthorEmail(TOKEN, w.deps);
+  check("valid token → ok, fixed redirect /dashboard, session started, confirmation email", r.ok && r.redirect === "/dashboard" && w.log.sessions[0] === "A-1" && w.log.confirmations[0]?.userId === "A-1");
+  w = mk({ userId: "A-1" }, { confirmThrows: true });
+  r = await verifyAuthorEmail(TOKEN, w.deps);
+  check("confirmation email failure never blocks verification", r.ok && w.log.sessions.length === 1);
+  w = mk({ error: "expired" });
+  r = await verifyAuthorEmail(TOKEN, w.deps);
+  check("expired / already-used token → reason expired, no session", !r.ok && r.reason === "expired" && w.log.sessions.length === 0);
+  w = mk({ error: "invalid" });
+  r = await verifyAuthorEmail(TOKEN, w.deps);
+  check("unknown / non-Author token → reason invalid, no session", !r.ok && r.reason === "invalid" && w.log.sessions.length === 0);
+  w = mk({ userId: "A-1" });
+  for (const bad of ["", "   ", null, undefined, 42]) {
+    r = await verifyAuthorEmail(bad, w.deps);
+    check(`missing token ${JSON.stringify(bad)} → reason missing, nothing consumed`, !r.ok && r.reason === "missing" && w.log.consumed.length === 0);
+  }
+  for (const bad of ["xyz", "g".repeat(64), "a".repeat(63), "a".repeat(65), "'; DROP TABLE users; --"]) {
+    r = await verifyAuthorEmail(bad, w.deps);
+    check(`malformed token ${JSON.stringify(bad.slice(0, 16))} → reason invalid, nothing consumed`, !r.ok && r.reason === "invalid" && w.log.consumed.length === 0);
+  }
+  w = mk(null, { throws: true });
+  r = await verifyAuthorEmail(TOKEN, w.deps);
+  check("database failure → reason unavailable, no session", !r.ok && r.reason === "unavailable" && w.log.sessions.length === 0);
+  check("every failure reason has a user message", ["missing", "invalid", "expired", "unavailable"].every((k) => typeof AUTHOR_VERIFY_MESSAGES[k] === "string"));
+}
+
+section("Verification email (deliverAuthorVerification)");
+{
+  const sent = [];
+  const TOKEN = "0123456789abcdef".repeat(4);
+  const r = await deliverAuthorVerification({ email: "priya.menon@gmail.com", name: "Priya <b>Menon</b>", userId: "A-1", token: TOKEN },
+    { siteUrl: "https://portal.example/", sendEmail: async (m) => { sent.push(m); return { ok: true }; } });
+  const m = sent[0];
+  check("one email, to the Author", r.ok && sent.length === 1 && m.to === "priya.menon@gmail.com");
+  check("link → <site>/auth/verify-email?token=<token> (no double slash)", m.html.includes(`https://portal.example/auth/verify-email?token=${TOKEN}`) && m.text.includes(`https://portal.example/auth/verify-email?token=${TOKEN}`));
+  check("says the link expires in 24 hours", /24 hours/.test(m.text));
+  check("name is HTML-escaped", !m.html.includes("<b>Menon</b>") && m.html.includes("&lt;b&gt;Menon&lt;/b&gt;"));
+  check("purpose + idempotency key per token (a resend is a NEW email)", m.purpose === "author_email_verification" && m.key === idempotencyKey("author-verify", "A-1", TOKEN) && m.key !== idempotencyKey("author-verify", "A-1", "f".repeat(64)));
+  const r2 = await deliverAuthorVerification({ email: "x@y.com", userId: "A-2", token: TOKEN }, { siteUrl: "https://p.example", sendEmail: async () => ({ ok: false, code: "invalid_access" }) });
+  check("provider failure → ok false with the code", r2.ok === false && r2.code === "invalid_access");
 }
 
 // ================================================================================

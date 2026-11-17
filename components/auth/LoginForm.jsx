@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
+import ResendSetupForm from "@/components/auth/ResendSetupForm";
 
 /**
  * LoginForm — the real sign-in form. Same markup/look as the original static
@@ -13,10 +14,12 @@ export default function LoginForm({ next = "/dashboard" }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState(""); // Author who still has to verify
 
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
+    setUnverifiedEmail("");
     setLoading(true);
     const fd = new FormData(e.currentTarget);
     try {
@@ -35,6 +38,7 @@ export default function LoginForm({ next = "/dashboard" }) {
         setError("Invalid email or password.");
       } else {
         const data = await res.json().catch(() => ({}));
+        if (data.code === "email_unverified") setUnverifiedEmail(String(fd.get("email") || ""));
         setError(data.error || "Sign-in is temporarily unavailable. Please try again.");
       }
     } catch {
@@ -44,6 +48,7 @@ export default function LoginForm({ next = "/dashboard" }) {
   }
 
   return (
+    <>
     <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-4">
       <Input label="Email" type="email" name="email" placeholder="you@example.com" autoComplete="email" required />
       <Input
@@ -59,5 +64,7 @@ export default function LoginForm({ next = "/dashboard" }) {
         {loading ? "Signing in…" : "Sign in →"}
       </Button>
     </form>
+    {unverifiedEmail && <ResendSetupForm purpose="author-verify" defaultEmail={unverifiedEmail} />}
+    </>
   );
 }
