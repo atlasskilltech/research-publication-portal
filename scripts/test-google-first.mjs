@@ -293,7 +293,11 @@ section("Existing accounts, forgot password, resend");
   const deps = {
     isApprovedEmail: (e) => e.endsWith("@atlasuniversity.edu.in"),
     rateLimit: () => true,
-    findUserByEmail: async (e) => P.byEmail(e),
+    // Same shape as lib/authServer.findUserByEmail.
+    findUserByEmail: async (e) => {
+      const u = P.byEmail(e);
+      return u ? { id: u.id, email_confirmed_at: u.email_confirmed_at, base_type: u.base_type, has_password: !!u.password_hash, google_linked: [...P.identities.values()].includes(u.id) } : null;
+    },
     sendRecovery: async (e, flow) => { sent.push(["recovery", e, flow]); return { error: null }; },
     sendSignInInstructions: async (e) => { sent.push(["instructions", e]); return { error: null }; },
   };
@@ -301,7 +305,10 @@ section("Existing accounts, forgot password, resend");
   await resendSetupEmail({ email: pwStudent.email, ip: "1.1.1.1", purpose: "reset" }, deps);
   check("forgot password (has a password) → reset link", sent.at(-1).join() === `recovery,${pwStudent.email},reset`);
   await resendSetupEmail({ email: "new.one@atlasuniversity.edu.in", ip: "1.1.1.1", purpose: "reset" }, deps);
-  check("forgot password (no password yet) → reset link (explicit request)", sent.at(-1).join() === "recovery,new.one@atlasuniversity.edu.in,reset");
+  check("forgot password (no password, never signed in with Google) → 'sign in with Google first', NO reset link", sent.at(-1).join() === "instructions,new.one@atlasuniversity.edu.in");
+  P.identities.set("sub-new-one", P.byEmail("new.one@atlasuniversity.edu.in").id); // first Google sign-in links the identity
+  await resendSetupEmail({ email: "new.one@atlasuniversity.edu.in", ip: "1.1.1.1", purpose: "reset" }, deps);
+  check("forgot password (no password, signed in with Google once) → reset link", sent.at(-1).join() === "recovery,new.one@atlasuniversity.edu.in,reset");
   const ghost = await resendSetupEmail({ email: "ghost@atlasuniversity.edu.in", ip: "1.1.1.1", purpose: "reset" }, deps);
   const known = await resendSetupEmail({ email: pwStudent.email, ip: "1.1.1.1", purpose: "reset" }, deps);
   check("same neutral answer for unknown accounts", JSON.stringify(ghost) === JSON.stringify(known));

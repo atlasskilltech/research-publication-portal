@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import {
   parseVerificationParams, classifyVerifyError, emailRedirectUrl, AFTER_VERIFY_PATH,
   validatePasswordPair, passwordStrength, verifyLink, setPassword, resendSetupEmail,
-  resendAction, RESEND_NEUTRAL, createRateLimiter, redactSecrets, SETUP_TTL_SECONDS, LINK_MESSAGES,
+  resendAction, RESEND_NEUTRAL, RESET_NEUTRAL, createRateLimiter, redactSecrets, SETUP_TTL_SECONDS, LINK_MESSAGES,
 } from "../lib/authFlow.js";
 import { deliverInvite, deliverRecovery } from "../lib/authMailer.js";
 
@@ -267,7 +267,23 @@ console.log("\nResend (sign-in instructions) & existing accounts:");
   check("upstream error → still neutral 200", (await r("pending@atlasuniversity.edu.in", deps({ findUserByEmail: async () => { throw new Error("db down"); } }))).body.message === RESEND_NEUTRAL);
   check("invalid email → 422", (await r("not-an-email")).status === 422);
   check("resend never creates accounts", resendAction(null) === "none" && resendAction(null, "reset") === "none");
-  check("resend → instructions; forgot password → recovery (reset)", resendAction({}, "setup") === "instructions" && resendAction({}, "reset") === "recovery");
+  check("resend → always sign-in instructions", resendAction({}, "setup") === "instructions" && resendAction({ has_password: true }, "setup") === "instructions");
+  check("forgot password: Google-linked Student/Faculty → recovery", resendAction({ base_type: "FACULTY", google_linked: true }, "reset") === "recovery");
+  check("forgot password: account that already has a password → recovery", resendAction({ base_type: "STUDENT", has_password: true }, "reset") === "recovery");
+  check("forgot password: AUTHOR → recovery (authors use email + password)", resendAction({ base_type: "AUTHOR" }, "reset") === "recovery");
+  check("forgot password: Student/Faculty never signed in with Google, no password → 'sign in with Google first', NO reset link",
+    resendAction({ base_type: "FACULTY", has_password: false, google_linked: false }, "reset") === "instructions"
+      && resendAction({ base_type: "STUDENT" }, "reset") === "instructions"
+      && resendAction({}, "reset") === "instructions");
+  check("forgot password: truthy-but-not-true flags don't count", resendAction({ base_type: "FACULTY", has_password: 1, google_linked: "yes" }, "reset") === "instructions");
+  {
+    const fp = (email, accounts2) => resendSetupEmail({ email, ip: "9.9.9.9", purpose: "reset" }, deps({ isApprovedEmail: () => true, findUserByEmail: async (e) => accounts2[e] || null, rateLimit: () => true }));
+    const before = sent.length;
+    const a = await fp("someone@gmail.com", { "someone@gmail.com": { id: "g1", base_type: "FACULTY", has_password: false, google_linked: false } });
+    check("forgot password for a Gmail-registered Faculty (never used Google) → neutral, instructions only", a.body.message === RESET_NEUTRAL && sent.at(-1)?.join() === "instructions,someone@gmail.com" && sent.length === before + 1);
+    await fp("w@isdi.in", { "w@isdi.in": { id: "w1", base_type: "FACULTY", google_linked: true } });
+    check("forgot password for a Google-linked Workspace user → reset link", sent.at(-1)?.join() === "recovery,w@isdi.in,reset");
+  }
 
   let t = 0;
   const limiter = createRateLimiter({ ip: [5, 15 * 60_000], email: [3, 60 * 60_000] }, () => t);
@@ -362,7 +378,7 @@ console.log("\nPassword recovery end-to-end (fake store + real mailer/templates)
   await setPassword({ password: "Original#Pass2026", confirm: "Original#Pass2026" }, setPwDeps(sb, jar));
   check("precondition: user signs in with original password", sb.signInWithPassword("reset.me@atlasuniversity.edu.in", "Original#Pass2026"));
 
-  const accounts = { "reset.me@atlasuniversity.edu.in": { id: [...sb.users.values()][0].id, email_confirmed_at: "2026-11-01T00:00:00Z" } };
+  const accounts = { "reset.me@atlasuniversity.edu.in": { id: [...sb.users.values()][0].id, email_confirmed_at: "2026-11-01T00:00:00Z", base_type: "FACULTY", has_password: true, google_linked: false } };
   const before = sb.outbox.length;
   const forgot = await resendSetupEmail({ email: "reset.me@atlasuniversity.edu.in", ip: "5.5.5.5", purpose: "reset" }, {
     isApprovedEmail: () => true, rateLimit: () => true,

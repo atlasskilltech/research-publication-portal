@@ -217,7 +217,7 @@ function RegisterPageInner() {
             ) : (<>
             <form className="mt-5 flex flex-col gap-4" onSubmit={onSubmit}>
               <Input label="Full name" name="name" placeholder="Anushi Shah" required error={issues.name} />
-              <Input label="University email" name="email" type="email" placeholder="you@atlasuniversity.edu.in" required error={issues.email} />
+              <Input label="ATLAS email" name="email" type="email" placeholder="you@atlasuniversity.edu.in" hint="The email of your ATLAS Google account (any ATLAS domain). You'll sign in with Google." required error={issues.email} />
               <Select label="School" name="school" options={SCHOOLS} error={issues.school} />
 
               {isStudent && (
