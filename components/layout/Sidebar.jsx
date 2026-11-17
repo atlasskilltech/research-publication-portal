@@ -10,7 +10,7 @@ import { useRole } from "@/components/layout/RoleContext";
 
 function NavLinks({ onNavigate }) {
   const pathname = usePathname();
-  const { roleKey, roles } = useRole();
+  const { roleKey, roles, realRole } = useRole();
   const items = [...navForRole(roleKey)];
 
   // Capability-aware: a user who holds a reviewer role (but isn't an admin, who
@@ -34,6 +34,12 @@ function NavLinks({ onNavigate }) {
   // (the page and API re-check the role + allowlisted email server-side).
   if ((roles || []).includes("PROGRAM_CHAIR") && !items.some((i) => i.href === "/approvals")) {
     items.push({ label: "Final Approvals", href: "/approvals", icon: "shield" });
+  }
+
+  // Faculty achievements: every ATLAS account (faculty, students, staff) records
+  // its own; external AIDC authors don't. Admins reach theirs from "Achievements".
+  if (realRole !== "author" && roleKey !== "administrator" && roleKey !== "author" && !items.some((i) => i.href === "/achievements")) {
+    items.push({ label: "My Achievements", href: "/achievements", icon: "award" });
   }
 
   // Highlight only the most specific match (so /publications/manage doesn't

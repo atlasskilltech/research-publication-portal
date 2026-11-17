@@ -33,6 +33,7 @@ const PATHS = {
   calendar: <><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18" /><path d="M8 2v4M16 2v4" /></>,
   userplus: <><circle cx="9" cy="8" r="3" /><path d="M3 20a6 6 0 0 1 11 0" /><path d="M18 8v6M15 11h6" /></>,
   shield: <><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" /><path d="M9 12l2 2 4-4" /></>,
+  award: <><circle cx="12" cy="9" r="6" /><path d="M8.5 13.9L7 22l5-3 5 3-1.5-8.1" /></>,
   wand: <><path d="M15 4V2M15 10V8M12 6h-2M20 6h-2" /><path d="M13 8l-9 9 2 2 9-9z" /></>,
 };
 

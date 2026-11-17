@@ -86,7 +86,7 @@ try {
   const implicit = new Set((await db.query(
     "SELECT cc.constraint_name AS n FROM information_schema.check_constraints cc WHERE cc.constraint_schema = DATABASE() AND cc.check_clause LIKE '%json_valid%'")).map((r) => r.n));
   const unprefixed = objNames.filter((r) => !r.n.startsWith("research_")).map((r) => r.n);
-  check("every declared index / unique / FK / CHECK name is research_-prefixed", objNames.length > 60 && unprefixed.every((n) => implicit.has(n) && ["keywords", "detail", "review_ids", "responses", "authors"].includes(n)), unprefixed.join());
+  check("every declared index / unique / FK / CHECK name is research_-prefixed", objNames.length > 60 && unprefixed.every((n) => implicit.has(n) && ["keywords", "detail", "details", "review_ids", "responses", "authors"].includes(n)), unprefixed.join());
   check("all migrations apply to an empty database", applied.length === listMigrations().length, applied.join(", "));
   check("re-running is a no-op (history respected)", (await migrate(db, { log: () => {} })).length === 0);
   for (const f of listMigrations()) {
@@ -100,7 +100,7 @@ try {
   const engines = await db.query("SELECT table_name AS n, engine AS e, table_collation AS c FROM information_schema.tables WHERE table_schema = DATABASE()");
   check("every table is InnoDB + utf8mb4", engines.length >= 18 && engines.every((t) => t.e === "InnoDB" && /^utf8mb4/.test(t.c)), engines.filter((t) => t.e !== "InnoDB").map((t) => t.n).join());
   const fks = Number((await db.one("SELECT COUNT(*) AS n FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE()")).n);
-  check("all 37 foreign keys created (5 auth, 18 workflow, 9 publication, 1 author profile, 4 approvals)", fks === 37, `${fks}`);
+  check("all 40 foreign keys created (5 auth, 18 workflow, 9 publication, 1 author profile, 4 approvals, 3 achievements)", fks === 40, `${fks}`);
   const when = new Date("2026-03-04T05:06:07.089Z");
   await db.exec(`INSERT INTO \`${T.oauthStates}\` (state_hash, nonce, code_verifier, next_path, expires_at) VALUES (?, 'n', 'v', '/', ?)`, ["0".repeat(64), when]);
   const rt = await db.one(`SELECT expires_at AS d, created_at AS c, CAST(? AS DATE) AS dd FROM \`${T.oauthStates}\` WHERE state_hash = ?`, ["2026-03-04", "0".repeat(64)]);

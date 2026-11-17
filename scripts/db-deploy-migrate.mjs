@@ -94,6 +94,11 @@ try {
       if (!/'PROGRAM_CHAIR'/.test(col?.t || "") || tables.length !== 1) throw new Error("Program Chair schema not present after 005");
       console.log("✓ Program Chair schema verified (user_roles enum, decision approvals table).");
     }
+    if (history.has("006_achievements.mjs")) {
+      const tables = await db.query("SELECT table_name AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN (?)", [[T.achievements, T.achievementFiles]]);
+      if (tables.length !== 2) throw new Error("Achievements schema not present after 006");
+      console.log("✓ Achievements schema verified (achievements, achievement files).");
+    }
     console.log("✓ Migrations applied and verified.");
   }
 } catch (e) {
