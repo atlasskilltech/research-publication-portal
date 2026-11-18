@@ -1,4 +1,4 @@
-// "Resend verification email" for external AUTHOR accounts (AIDC 2026).
+// "Resend verification email" for external AUTHOR accounts (AIDC 2027).
 // Same neutral answer whether or not the address belongs to an unverified
 // Author (no account enumeration); shares the resend rate limiter (per IP +
 // per address). A new link invalidates the previous one.

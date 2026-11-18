@@ -156,7 +156,7 @@ section("Callback end-to-end (fake MySQL + Google token endpoint)");
   check("second login uses the linked identity (no duplicate link)", again.outcome === "ok" && w.log.links.length === 1);
 
   const gmail = await callback(w, { email: "user@gmail.com", claims: { hd: undefined, sub: "S-g" } });
-  // AIDC 2026: an UNREGISTERED external Google account is still refused with no
+  // AIDC 2027: an UNREGISTERED external Google account is still refused with no
   // account and no session; the notice now points external authors to the Author form.
   check("3. personal gmail (unregistered) → refused, no session, no account", gmail.redirect === "/login?notice=google_not_registered" && w.log.sessions.length === 2 && w.users.size === 1);
   const newUni = await callback(w, { email: "newbie@atlasuniversity.edu.in", claims: { sub: "S-new" } });

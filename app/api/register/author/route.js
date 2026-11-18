@@ -1,4 +1,4 @@
-// External AUTHOR registration (AIDC – ATLAS International Design Conference 2026)
+// External AUTHOR registration (AIDC – ATLAS International Design Conference 2027)
 // — email + password + email verification. Rules: lib/authorRegistration.js
 // (pure, unit-tested).
 //

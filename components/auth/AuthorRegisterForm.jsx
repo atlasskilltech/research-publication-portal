@@ -15,7 +15,7 @@ const Req = ({ children }) => <>{children} <span className="text-accent">*</span
 const FIELDS = ["name", "email", "phone", "organization", "currentStatus", "designation", "location", "password", "confirmPassword"];
 
 /**
- * External AUTHOR registration (AIDC 2026): profile fields + password.
+ * External AUTHOR registration (AIDC 2027): profile fields + password.
  * The server creates the account (Argon2id hash) and emails a 24-hour
  * verification link; the Author is NOT signed in until they open it. Authors sign in with email + password; Google
  * Sign-In is not available for them. Validation runs here for instant feedback
@@ -112,16 +112,16 @@ export default function AuthorRegisterForm({ notice = "" }) {
         )}
 
         <p className="text-xs text-muted">
-          Your Author account lets you submit papers for {CONFERENCE_NAME} and follow their review. Authors sign in with email and password; Google Sign-In is not available for Author accounts.
+          Your AIDC account lets you submit papers for {CONFERENCE_NAME} and follow their review. AIDC participants sign in with email and password; Google Sign-In is not available for AIDC accounts.
         </p>
 
         <Button type="submit" variant="primary" size="lg" full disabled={loading}>
-          {loading ? "Creating account…" : "Create Author account →"}
+          {loading ? "Creating account…" : "Create AIDC account →"}
         </Button>
       </form>
 
       <p className="mt-6 text-sm text-muted">
-        Already registered as an Author?{" "}
+        Already registered for AIDC?{" "}
         <Link href="/login#author-signin" className="font-semibold text-accent hover:underline">Sign in with email and password →</Link>
       </p>
     </div>

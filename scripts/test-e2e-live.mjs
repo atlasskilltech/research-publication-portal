@@ -101,7 +101,7 @@ async function createPersona(key) {
 }
 /**
  * E2E_AUTHOR_BASE_TYPE=AUTHOR runs the whole workflow with the submitting
- * persona as an external AIDC 2026 AUTHOR account (non-university email),
+ * persona as an external AIDC 2027 AUTHOR account (non-university email),
  * created exactly as Google activation creates it, plus a password for this run.
  */
 async function mkExternalAuthor(name) {

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Verify your email — Research Publication Portal", robots: { index: false } };
 
 /**
- * External Author (AIDC 2026) email verification:
+ * External Author (AIDC 2027) email verification:
  *   /auth/verify-email?token=<64 hex>   (link from the verification email)
  * Opening the link verifies nothing (scanner-safe). The Author presses
  * "Verify my email" → server action → token consumed in MySQL → signed in →
@@ -37,10 +37,10 @@ export default async function VerifyEmailPage({ searchParams }) {
   }
 
   return (
-    <AuthCard eyebrow="Author registration" title="Verify your email">
+    <AuthCard eyebrow="AIDC registration" title="Verify your email">
       <FragmentScrubber stripQuery />
       <p className="mt-2 text-sm text-muted">
-        Press the button below to confirm your email address. Your Author account will be activated and you&apos;ll be signed in.
+        Press the button below to confirm your email address. Your AIDC account will be activated and you&apos;ll be signed in.
       </p>
       <form action={verifyAuthorEmailAction} className="mt-6">
         <input type="hidden" name="token" value={token} />

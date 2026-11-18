@@ -10,7 +10,7 @@
 //        and files under `file_<slot>` (one or more per slot).
 //
 // Security: identity from the session, never the client. External AUTHOR
-// accounts (AIDC 2026) have no access. Fields are validated against the type
+// accounts (AIDC 2027) have no access. Fields are validated against the type
 // definition; every file is checked by its leading bytes, stored under a random
 // key in the private store, and the rows are written in one transaction — if it
 // fails, the stored files are deleted.

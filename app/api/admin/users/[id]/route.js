@@ -33,7 +33,7 @@ function mapRoleError(message) {
   if (m.includes("RPP_NOT_FOUND")) return { status: 404, error: "User not found." };
   if (m.includes("RPP_INVALID_ROLE")) return { status: 422, error: "One or more roles are not permitted." };
   if (m.includes("RPP_CHAIR_NOT_ALLOWED")) return { status: 422, error: "Program Chair is reserved for the approved account and can't be given to this user." };
-  if (m.includes("RPP_AUTHOR_ROLES")) return { status: 422, error: "External authors (AIDC 2026) are submitters only and can't be given portal roles." };
+  if (m.includes("RPP_AUTHOR_ROLES")) return { status: 422, error: "External authors (AIDC 2027) are submitters only and can't be given portal roles." };
   if (m.includes("RPP_INVALID_STATUS")) return { status: 422, error: "Status must be ACTIVE or DISABLED." };
   if (m.includes("RPP_HAS_HISTORY")) return { status: 409, error: "This account has history and can't be deleted. Disable it instead." };
   return null;

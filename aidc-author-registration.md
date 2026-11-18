@@ -1,4 +1,4 @@
-# External Authors — AIDC – ATLAS International Design Conference 2026
+# External Authors — AIDC – ATLAS International Design Conference 2027
 
 People outside ATLAS SkillTech University can register as **Authors** and submit
 papers through the existing portal workflow. `AUTHOR` is a third account type

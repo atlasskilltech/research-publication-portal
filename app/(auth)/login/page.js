@@ -1,6 +1,5 @@
 import Link from "next/link";
 import Image from "next/image";
-import BrandLogo, { AtlasCube } from "@/components/layout/BrandLogo";
 import LoginForm from "@/components/auth/LoginForm";
 import FragmentScrubber from "@/components/auth/FragmentScrubber";
 import { BRAND } from "@/lib/constants";
@@ -34,16 +33,12 @@ export default async function LoginPage({ searchParams }) {
   const notice = Object.hasOwn(NOTICES, sp.notice) ? NOTICES[sp.notice] : null;
   const next = safeNextPath(sp.callbackUrl);
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-2">
+    <div className="min-h-[calc(100vh-61px)] lg:grid lg:grid-cols-2">
       {/* ---- Hero (desktop) ---- */}
-      <aside className="relative hidden overflow-hidden border-r border-line p-10 lg:flex lg:flex-col lg:justify-between">
+      <aside className="relative hidden overflow-hidden border-r border-line p-10 lg:flex lg:flex-col lg:justify-between lg:gap-10">
         <div className="orbit left-[-120px] top-[120px] h-[520px] w-[520px]" aria-hidden="true" />
         <div className="orbit left-[-40px] top-[260px] h-[360px] w-[360px]" aria-hidden="true" />
         <span className="absolute bottom-[-40px] left-[120px] h-40 w-40 rounded-full bg-[#c7d84a]/70 blur-[1px]" aria-hidden="true" />
-
-        <div className="relative z-10">
-          <BrandLogo />
-        </div>
 
         <div className="relative z-10 max-w-md">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted">The 2025–26 Volume</p>
@@ -77,17 +72,7 @@ export default async function LoginPage({ searchParams }) {
       </aside>
 
       {/* ---- Form ---- */}
-      <section className="flex min-h-screen flex-col justify-center px-6 py-10 sm:px-12 lg:px-16">
-        {/* compact brand for mobile */}
-        <div className="mb-8 flex items-center gap-2 lg:hidden">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand p-1">
-            <AtlasCube size={28} />
-          </span>
-          <span className="leading-tight">
-            <span className="block text-[10px] font-bold uppercase tracking-widest text-muted">Research Publication</span>
-            <span className="block text-sm font-bold text-ink">Portal 2025–26</span>
-          </span>
-        </div>
+      <section className="flex flex-col justify-center px-6 py-10 sm:px-12 lg:px-16">
 
         <div className="mx-auto w-full max-w-sm">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">Sign in</p>
@@ -108,30 +93,21 @@ export default async function LoginPage({ searchParams }) {
 
           {/* Authors (and anyone who has set a password): email + password. */}
           <div id="author-signin" className="mt-8 scroll-mt-6 rounded-xl border border-line bg-white p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">Author sign-in</p>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">AIDC sign-in</p>
             <p className="mt-1 text-sm text-muted">
-              Authors ({CONFERENCE_SHORT}) sign in with their registered email address and password.
+              {CONFERENCE_SHORT} participants sign in with their registered email address and password.
             </p>
             <div className="mt-4">
               <LoginForm next={next} />
             </div>
             <p className="mt-3 text-xs text-muted">
               <Link href="/auth/forgot-password" className="font-semibold text-accent hover:underline">Forgot password?</Link>{" "}
-              Authors who signed in with Google before: use it to set a password.
+              AIDC participants who signed in with Google before: use it to set a password.
             </p>
             <p className="mt-2 text-xs text-muted">
               Students, faculty and staff who have created a password can also sign in here.
             </p>
           </div>
-
-          <p className="mt-6 text-sm text-muted">
-            External author ({CONFERENCE_SHORT})?{" "}
-            <Link href="/register?type=author" className="font-semibold text-accent hover:underline">Register as an Author →</Link>
-          </p>
-          <p className="mt-2 text-sm text-muted">
-            ATLAS student or faculty, first submission?{" "}
-            <Link href="/register" className="font-semibold text-accent hover:underline">Start here →</Link>
-          </p>
         </div>
       </section>
     </div>

@@ -24,7 +24,7 @@ function GoogleLogo({ className }) {
  */
 export default function GoogleSignInButton({
   next = "/dashboard", disabled = false, prominent = false, label = "Sign in with Google",
-  hint = "For ATLAS students, faculty and staff. Google Sign-In is not available for Authors.",
+  hint = "For ATLAS students, faculty and staff. Google Sign-In is not available for AIDC accounts.",
 }) {
   const [pending, setPending] = useState(false);
 

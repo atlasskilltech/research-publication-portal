@@ -23,10 +23,10 @@ export default async function AccountPage() {
   const user = await findUserById(db, me.id);
   if (!user) redirect("/login");
   const googleLinked = !!(await linkedSubFor(me.id));
-  const isAuthor = user.base_type === "AUTHOR"; // external author (AIDC 2026)
+  const isAuthor = user.base_type === "AUTHOR"; // external author (AIDC 2027)
   // Authors sign in with email + password only (Google refuses AUTHOR accounts).
   const googleCapable = !isAuthor && isPlainEmail(user.email);
-  const accountType = isAuthor ? "Author (AIDC 2026)" : user.base_type === "FACULTY" ? "Faculty" : "Student";
+  const accountType = isAuthor ? "AIDC (AIDC 2027)" : user.base_type === "FACULTY" ? "Faculty" : "Student";
 
   return (
     <div className="max-w-2xl">
@@ -46,7 +46,7 @@ export default async function AccountPage() {
           <li className="flex items-center justify-between gap-3 py-3">
             <span className="font-semibold text-ink">Google (the Google account for this email)</span>
             <span className="text-xs text-muted">
-              {isAuthor ? "Not available for Author accounts" : googleLinked ? "Linked" : googleCapable ? "Available: use “Sign in with Google”" : "Not available for this address"}
+              {isAuthor ? "Not available for AIDC accounts" : googleLinked ? "Linked" : googleCapable ? "Available: use “Sign in with Google”" : "Not available for this address"}
             </span>
           </li>
           <li className="flex items-center justify-between gap-3 py-3">
@@ -68,7 +68,7 @@ export default async function AccountPage() {
             <>
               <p className="mt-2 text-sm text-muted">
                 {isAuthor
-                  ? "Author accounts sign in with email and password (Google Sign-In is not available for Authors). Set your password now so you can sign in next time."
+                  ? "AIDC accounts sign in with email and password (Google Sign-In is not available for AIDC accounts). Set your password now so you can sign in next time."
                   : "You don’t need a password: you can keep signing in with Google. Add one only if you also want to sign in with your email and password."}
               </p>
               <CreatePasswordForm mode="add" />

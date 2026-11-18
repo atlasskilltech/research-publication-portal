@@ -7,7 +7,6 @@ import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
-import { AtlasCube } from "@/components/layout/BrandLogo";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import AuthorRegisterForm from "@/components/auth/AuthorRegisterForm";
 import { CONFERENCE_NAME } from "@/lib/authorRegistration";
@@ -38,12 +37,15 @@ export default function RegisterPage() {
   );
 }
 
+// Internal value "author" = the AIDC account type (shown as "AIDC").
 const REGISTER_TYPES = ["student", "faculty", "author"];
+const TYPE_LABEL = { student: "Student", faculty: "Faculty", author: "AIDC" };
 
 function RegisterPageInner() {
   const searchParams = useSearchParams();
   // /register?type=author[&notice=…] — e.g. returning from Google in the Author flow.
-  const initialType = searchParams.get("type") === "author" ? "author" : "student";
+  const typeParam = searchParams.get("type");
+  const initialType = typeParam === "author" || typeParam === "aidc" ? "author" : "student";
   const authorNotice = initialType === "author" ? searchParams.get("notice") || "" : "";
   const [type, setType] = useState(initialType);
   const [error, setError] = useState("");
@@ -149,14 +151,8 @@ function RegisterPageInner() {
   const submitDisabled = loading || (isStudent && checkStatus !== "verified");
 
   return (
-    <div className="flex min-h-screen flex-col justify-center px-6 py-10">
+    <div className="flex flex-col justify-center px-6 py-10">
       <div className="mx-auto w-full max-w-md">
-        <div className="mb-6 flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand p-1">
-            <AtlasCube size={28} />
-          </span>
-          <span className="text-sm font-bold text-ink">Portal 2025–26</span>
-        </div>
 
         {done ? (
           <div>
@@ -193,7 +189,7 @@ function RegisterPageInner() {
             <h1 className="mt-1 font-display text-3xl font-bold text-ink">Submit your paper</h1>
             {isAuthor ? (
               <p className="mt-1 text-sm text-muted">
-                Author registration for <b className="text-ink">{CONFERENCE_NAME}</b>. Open to participants from any institution or organization.
+                AIDC registration for <b className="text-ink">{CONFERENCE_NAME}</b>. Open to participants from any institution or organization.
               </p>
             ) : (
               <p className="mt-1 text-sm text-muted">Create an account to upload your research paper for the 2025–26 publication cycle.</p>
@@ -204,9 +200,9 @@ function RegisterPageInner() {
               <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-line">
                 {REGISTER_TYPES.map((t) => (
                   <button key={t} type="button" onClick={() => switchType(t)}
-                    className={cn("px-4 py-2.5 text-sm font-semibold capitalize transition-colors",
+                    className={cn("px-4 py-2.5 text-sm font-semibold transition-colors",
                       type === t ? "bg-brand text-white" : "bg-white text-ink hover:bg-soft")}>
-                    {t}
+                    {TYPE_LABEL[t]}
                   </button>
                 ))}
               </div>

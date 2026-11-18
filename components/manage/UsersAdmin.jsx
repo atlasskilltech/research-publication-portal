@@ -236,7 +236,7 @@ export default function UsersAdmin({ meId, protectedEmails = [], chairEmails = [
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {ROLE_DEFS.map((r) => {
                   const checked = draftRoles.has(r.value);
-                  // External authors (AIDC 2026) can't hold roles — the server refuses it too.
+                  // External authors (AIDC 2027) can't hold roles — the server refuses it too.
                   const disabled = rolesLockedForSelf || manage.baseType === "AUTHOR" || (r.value === "ADMINISTRATOR" && adminBoxDisabled)
                     || (r.value === "PROGRAM_CHAIR" && !checked && !chairAllowed(manage));
                   return (
@@ -256,7 +256,7 @@ export default function UsersAdmin({ meId, protectedEmails = [], chairEmails = [
               {!rolesLockedForSelf && manage.baseType !== "AUTHOR" && !chairAllowed(manage) && !draftRoles.has("PROGRAM_CHAIR") && (
                 <p className="mt-2 text-xs text-muted">Program Chair is reserved for the approved account.</p>
               )}
-              {manage.baseType === "AUTHOR" && <p className="mt-2 text-xs text-muted">External authors (AIDC 2026) are submitters only and can&apos;t be given portal roles.</p>}
+              {manage.baseType === "AUTHOR" && <p className="mt-2 text-xs text-muted">External authors (AIDC 2027) are submitters only and can&apos;t be given portal roles.</p>}
               {!rolesLockedForSelf && manage.isAdmin && (isProtected(manage) || isLastAdmin(manage)) && (
                 <p className="mt-2 text-xs text-muted">{isProtected(manage) ? "Administrator can't be removed from a protected original admin." : "Administrator can't be removed from the last administrator."}</p>
               )}

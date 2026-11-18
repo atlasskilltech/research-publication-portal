@@ -24,7 +24,7 @@ function Arrow({ size = 16 }) {
 
 /** "Login" → /login, or "Open dashboard" for a signed-in visitor. */
 export function LoginButton({ signedIn, size = "md", label, className = "" }) {
-  const pad = size === "lg" ? "px-6 py-3 text-[15px]" : "px-4 py-2 text-sm";
+  const pad = size === "lg" ? "px-6 py-3 text-[15px]" : "px-3 py-2 text-sm sm:px-4";
   return (
     <Link
       href={signedIn ? "/dashboard" : "/login"}
@@ -35,7 +35,20 @@ export function LoginButton({ signedIn, size = "md", label, className = "" }) {
   );
 }
 
-/** `active` = "publications" highlights the Publications link. */
+/** "Register" — outline button next to Login (hidden once signed in). */
+function RegisterButton({ active }) {
+  return (
+    <Link
+      href="/register"
+      aria-current={active ? "page" : undefined}
+      className={`inline-flex items-center justify-center rounded-lg border px-3 py-2 text-sm font-semibold transition hover:bg-soft sm:px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${active ? "border-brand text-brand" : "border-line bg-white text-ink"}`}
+    >
+      Register
+    </Link>
+  );
+}
+
+/** `active` = "publications" | "register" | "login" highlights that link. */
 export default function SiteHeader({ signedIn = false, active = null }) {
   const pubActive = active === "publications";
   return (
@@ -47,7 +60,7 @@ export default function SiteHeader({ signedIn = false, active = null }) {
             <a key={href} href={href} className="font-medium text-muted transition hover:text-ink">{label}</a>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Link
             href="/publications"
             aria-current={pubActive ? "page" : undefined}
@@ -55,6 +68,7 @@ export default function SiteHeader({ signedIn = false, active = null }) {
           >
             Publications
           </Link>
+          {!signedIn && <RegisterButton active={active === "register"} />}
           <LoginButton signedIn={signedIn} />
         </div>
       </div>

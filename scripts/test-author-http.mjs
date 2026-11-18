@@ -1,5 +1,5 @@
 /**
- * External AUTHOR (AIDC 2026) — HTTP checks against a RUNNING app (MySQL).
+ * External AUTHOR (AIDC 2027) — HTTP checks against a RUNNING app (MySQL).
  *
  *   Registration  POST /api/register/author with password: account (Argon2id
  *                 hash) + profile, email NOT verified, NO session; login refused
@@ -85,7 +85,7 @@ async function startGoogle(br, fields) {
 }
 
 async function main() {
-  console.log(`\n=== External Author (AIDC 2026) HTTP tests (app ${h.BASE}) ===`);
+  console.log(`\n=== External Author (AIDC 2027) HTTP tests (app ${h.BASE}) ===`);
 
   // ---------------------------------------------------------------------------
   console.log("\nRegistration (POST /api/register/author):");
@@ -254,9 +254,9 @@ async function main() {
   const loginHtml = await login.text();
   check("/login has EXACTLY ONE Google sign-in form", (loginHtml.match(/action="\/auth\/google"/g) || []).length === 1);
   check("…\"Sign in with Google\", no Author Google button, no intent field", /Sign in with Google/.test(loginHtml) && !/Author sign-in with Google/.test(loginHtml) && !/name="intent"/.test(loginHtml));
-  check("…clearly says Google Sign-In is not available for Authors", /Google Sign-In is not available for Authors/.test(loginHtml));
-  check("…separate Author email + password sign-in section", /id="author-signin"/.test(loginHtml) && /Author sign-in/.test(loginHtml) && /name="password"/.test(loginHtml));
-  check("…Author registration link and Forgot password link present", /href="\/register\?type=author"/.test(loginHtml) && /href="\/auth\/forgot-password"/.test(loginHtml));
+  check("…clearly says Google Sign-In is not available for AIDC accounts", /Google Sign-In is not available for AIDC accounts/.test(loginHtml));
+  check("…separate Author email + password sign-in section", /id="author-signin"/.test(loginHtml) && /AIDC sign-in/.test(loginHtml) && /name="password"/.test(loginHtml));
+  check("…Register link (header) and Forgot password link present", /href="\/register"/.test(loginHtml) && /href="\/auth\/forgot-password"/.test(loginHtml));
   const nt = await (await h.browser().req("/login?notice=author_google_disabled")).text();
   check("…Author Google refusal notice renders", /Google Sign-In is not available for Author accounts/.test(nt));
 
@@ -266,7 +266,7 @@ async function main() {
   const B = await mkAuthor("two");
   check("AUTHOR signs in (existing password login works for the session)", A.loginStatus === 200 && B.loginStatus === 200, `${A.loginStatus}/${B.loginStatus}`);
   const dash = await A.br.api("/api/dashboard");
-  check("own Author dashboard → 200 with AIDC 2026 profile", dash.status === 200 && dash.data?.externalAuthor?.conference === "AIDC – ATLAS International Design Conference 2026" && dash.data.externalAuthor.profile?.organization === "Example Org" && dash.data.externalAuthor.profile?.currentStatus === "Working Professional");
+  check("own Author dashboard → 200 with AIDC 2027 profile", dash.status === 200 && dash.data?.externalAuthor?.conference === "AIDC – ATLAS International Design Conference 2027" && dash.data.externalAuthor.profile?.organization === "Example Org" && dash.data.externalAuthor.profile?.currentStatus === "Working Professional");
   check("dashboard has NO reviewer / editorial / admin sections", dash.data && !dash.data.reviewer && !dash.data.editorial && !dash.data.people && !dash.data.publication);
   const page = await A.br.req("/dashboard");
   check("/dashboard page renders for the Author", page.status === 200);

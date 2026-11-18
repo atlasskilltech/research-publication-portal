@@ -56,7 +56,7 @@ export default function DashboardPage() {
 
   const a = d.author;
   const firstName = String(d.name || "").split(/[\s@]/)[0];
-  const ext = d.externalAuthor; // only for external AUTHOR accounts (AIDC 2026)
+  const ext = d.externalAuthor; // only for external AUTHOR accounts (AIDC 2027)
 
   return (
     <>
@@ -195,7 +195,7 @@ export default function DashboardPage() {
             <KpiCard label="Accounts" value={d.people.total} />
             <KpiCard label="Students" value={d.people.students} />
             <KpiCard label="Faculty" value={d.people.faculty} />
-            <KpiCard label="Authors (AIDC)" value={d.people.authors ?? 0} />
+            <KpiCard label="AIDC participants" value={d.people.authors ?? 0} />
             {Object.entries(d.people.byRole).map(([k, v]) => <KpiCard key={k} label={ROLE_LABEL[k]} value={v} />)}
           </div>
         </Section>
@@ -204,7 +204,7 @@ export default function DashboardPage() {
   );
 }
 
-/** External author (AIDC 2026): profile + recent notifications (own papers only). */
+/** External author (AIDC 2027): profile + recent notifications (own papers only). */
 function AuthorProfileSection({ ext, name }) {
   const [feed, setFeed] = useState(null);
   useEffect(() => {
@@ -222,7 +222,7 @@ function AuthorProfileSection({ ext, name }) {
     ["Current status", p?.currentStatus], ["Designation / Role / Course", p?.designation], ["Location", p?.location],
   ];
   return (
-    <Section title="Author profile" action={<Link href="/account" className="text-xs font-semibold text-accent hover:underline">Account settings</Link>}>
+    <Section title="AIDC profile" action={<Link href="/account" className="text-xs font-semibold text-accent hover:underline">Account settings</Link>}>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <p className="text-sm font-semibold text-ink">{name}</p>

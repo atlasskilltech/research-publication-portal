@@ -42,7 +42,7 @@ export async function GET() {
     ]);
     const body = { name: me.name, author: summarizeAuthor({ papers: myPapers, revisions: myRevs, decisions: myDecs }, now) };
 
-    // ---- External author (AIDC 2026): own profile only ------------------------
+    // ---- External author (AIDC 2027): own profile only ------------------------
     if (me.baseType === "AUTHOR") {
       const p = await findAuthorProfile(db, me.id);
       body.externalAuthor = {

@@ -22,7 +22,7 @@ const CATEGORIES = ["AWAITING_DECISION", "AWAITING_REVIEWS", "REVISION", "ACCEPT
 export async function GET() {
   const me = await getSessionUser();
   if (!me) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
-  // External authors (AIDC 2026) never edit papers — refuse outright.
+  // External authors (AIDC 2027) never edit papers — refuse outright.
   if (me.baseType === "AUTHOR") return NextResponse.json({ error: "The editorial dashboard is restricted to administrators and editors." }, { status: 403 });
 
   try {

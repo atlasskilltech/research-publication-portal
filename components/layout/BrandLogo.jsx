@@ -33,7 +33,7 @@ export default function BrandLogo({ className = "", onDark = false }) {
         <span className={cn("block text-[10px] font-bold uppercase tracking-[0.18em]", onDark ? "text-white/70" : "text-muted")}>
           {BRAND.eyebrow}
         </span>
-        <span className={cn("block text-sm font-bold", onDark ? "text-white" : "text-ink")}>
+        <span className={cn("block whitespace-nowrap text-sm font-bold", onDark ? "text-white" : "text-ink")}>
           {BRAND.short}
         </span>
       </span>

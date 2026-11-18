@@ -1,5 +1,5 @@
 /**
- * External AUTHOR registration + Google Sign-In (AIDC 2026) — offline suite
+ * External AUTHOR registration + Google Sign-In (AIDC 2027) — offline suite
  * (no database, no network). Runs the SAME functions production uses:
  *
  *   lib/authorRegistration   validateAuthorRegistration + registerAuthor
@@ -260,7 +260,7 @@ section("Google Sign-In for Student / Faculty / Admin / Editor / Reviewer — un
   const s0 = w.log.sessions.length;
   const stranger = await cb(w, { claims: { email: "stranger@gmail.com", hd: undefined } });
   check("unregistered Google user → refused, no account, no session (Google never creates accounts)", stranger.outcome === "rejected:not_registered" && w.users.size === 6 && w.log.sessions.length === s0);
-  check("…message points external authors to Author registration + email/password", /register as an Author/.test(GOOGLE_NOTICES[noticeForReason("not_registered")]) && /email and password/.test(GOOGLE_NOTICES[noticeForReason("not_registered")]));
+  check("…message points external authors to Author registration + email/password", /register as AIDC/.test(GOOGLE_NOTICES[noticeForReason("not_registered")]) && /email and password/.test(GOOGLE_NOTICES[noticeForReason("not_registered")]));
 }
 
 section("Authorize URL");
@@ -279,22 +279,22 @@ section("SendGrid email: Author confirmation (existing mail pipeline)");
   const m = sent[0];
   check("sent through the shared sendEmail (one message)", r.ok && sent.length === 1 && m.to === "priya@gmail.com");
   check("idempotency key = user id → retries never send a second copy", m.key === idempotencyKey("author-registered", "A1"));
-  check("mentions the conference name", m.text.includes(CONFERENCE_NAME) && m.subject.includes("AIDC 2026"));
-  check("confirmation tells the Author to sign in with email + password (Google not available)", /email address and the password you chose/.test(m.text) && /Google Sign-In is not available for Author accounts/.test(m.text));
+  check("mentions the conference name", m.text.includes(CONFERENCE_NAME) && m.subject.includes("AIDC 2027"));
+  check("confirmation tells the Author to sign in with email + password (Google not available)", /email address and the password you chose/.test(m.text) && /Google Sign-In is not available for AIDC accounts/.test(m.text));
   check("confirmation contains no password", !m.text.includes(VALID.password) && !m.html.includes(VALID.password));
   check("no token, no password link", !/token|password=|reset-password|create-password/i.test(m.text.replace(/You do not need a password\./, "")));
-  check("no invented dates, fees, deadlines, guarantees or IEEE claims", !/\bIEEE\b|fee|deadline|guarantee|\b20(2[7-9]|3\d)\b|\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(m.text + m.subject));
+  check("no invented dates, fees, deadlines, guarantees or IEEE claims", !/\bIEEE\b|fee|deadline|guarantee|\b20(2[7-9]|3\d)\b|\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test((m.text + m.subject).replace(/AIDC 2027|Conference 2027/g, "")));
   check("HTML escapes the name", (await (async () => { sent.length = 0; await deliverAuthorRegistrationConfirmed({ email: "x@y.com", name: "<b>x</b>", userId: "A2" }, { sendEmail, siteUrl: "https://r.example" }); return !sent[0].html.includes("<b>x</b>"); })()));
   sent.length = 0;
   await deliverSignInInstructions({ email: "priya@gmail.com", userId: "A1", external: true, author: true }, { sendEmail, siteUrl: "https://r.example", isUniversityEmail: () => true });
-  check("sign-in reminder for an Author: email + password, Forgot password, Google not available", /email address and password/.test(sent[0].text) && /Forgot password/.test(sent[0].text) && /not available for Author/.test(sent[0].text) && !/Sign in with Google/.test(sent[0].text));
+  check("sign-in reminder for an Author: email + password, Forgot password, Google not available", /email address and password/.test(sent[0].text) && /Forgot password/.test(sent[0].text) && /not available for AIDC/.test(sent[0].text) && !/Sign in with Google/.test(sent[0].text));
   sent.length = 0;
   await deliverSignInInstructions({ email: "sf48116@gmail.com", userId: "X1", external: true }, { sendEmail, siteUrl: "https://r.example", isUniversityEmail: () => true });
   check("sign-in reminder for sf48116@gmail.com now points to Google too", /Sign in with Google/.test(sent[0].text) && !/can't use Google sign-in/.test(sent[0].text));
 }
 
 section("Branding");
-check("conference name exactly as specified", CONFERENCE_NAME === "AIDC – ATLAS International Design Conference 2026");
+check("conference name exactly as specified", CONFERENCE_NAME === "AIDC – ATLAS International Design Conference 2027");
 check("status values match the database ENUM", JSON.stringify(AUTHOR_STATUS_VALUES) === JSON.stringify(["WORKING_PROFESSIONAL", "STUDENT", "RESEARCHER", "INDEPENDENT_RESEARCHER", "OTHER"]));
 
 console.log(`\n${failures ? `✗ FAIL — ${failures} check(s) failed.` : "✓ PASS"} — ${total - failures}/${total} checks (external Author registration & Google sign-in)`);

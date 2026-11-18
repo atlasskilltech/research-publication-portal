@@ -1,5 +1,5 @@
 /**
- * MySQL integration suite for migration 004 (external AUTHOR accounts, AIDC 2026).
+ * MySQL integration suite for migration 004 (external AUTHOR accounts, AIDC 2027).
  *
  * Safety: creates its OWN throwaway databases `rpp_it_author_<random>` (+ a
  * restore target), and drops ONLY those at the end. Refuses non-local servers
