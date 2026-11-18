@@ -35,7 +35,7 @@ const pendingEmails = [];
 const PASSWORD = "Author#Pass2026!";
 const VALID = (email) => ({
   name: "IT Author", email, phone: "+91 98765 43210", organization: "Example Institute of Design",
-  currentStatus: "RESEARCHER", designation: "Research Fellow", location: "Pune, India",
+  currentStatus: "ACADEMICIAN", designation: "Research Fellow", location: "Pune, India",
   password: PASSWORD, confirmPassword: PASSWORD,
 });
 
@@ -98,7 +98,7 @@ async function main() {
   const credRow = await db.one(`SELECT passwordHash FROM \`${T.users}\` WHERE id = ?`, [created?.id]);
   check("…password stored only as an Argon2id hash (never plaintext)", credRow?.passwordHash?.startsWith("$argon2id$") && !credRow.passwordHash.includes(PASSWORD));
   const prof = await db.one(`SELECT phone, organization, current_status, designation, location FROM \`${T.authorProfiles}\` WHERE user_id = ?`, [created?.id]);
-  check("…profile stored with every field", prof?.phone === "+91 98765 43210" && prof.current_status === "RESEARCHER" && prof.location === "Pune, India" && prof.organization === "Example Institute of Design");
+  check("…profile stored with every field", prof?.phone === "+91 98765 43210" && prof.current_status === "ACADEMICIAN" && prof.location === "Pune, India" && prof.organization === "Example Institute of Design");
   check("…no Google identity, no pending row, no registration cookie",
     !(await db.one(`SELECT 1 AS x FROM \`${T.userIdentities}\` WHERE user_id = ?`, [created?.id])) && !(await db.one(`SELECT 1 AS x FROM \`${T.authorRegistrations}\` WHERE email = ?`, [email]))
     && !(ok.res.headers.getSetCookie?.() || []).some((c) => c.startsWith("rpp_author_reg=")));

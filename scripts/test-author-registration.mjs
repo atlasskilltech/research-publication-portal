@@ -32,7 +32,7 @@ const section = (t) => console.log(`\n${t}`);
 
 const VALID = {
   name: "Priya Menon", email: "Priya.Menon@Gmail.com", phone: "+91 98765 43210", organization: "National Institute of Design",
-  currentStatus: "RESEARCHER", designation: "M.Des Interaction Design", location: "Ahmedabad, India",
+  currentStatus: "ACADEMICIAN", designation: "M.Des Interaction Design", location: "Ahmedabad, India",
   password: "Strong#Pass2026", confirmPassword: "Strong#Pass2026",
 };
 
@@ -47,8 +47,9 @@ section("Registration form validation (validateAuthorRegistration)");
     const r = validateAuthorRegistration({ ...VALID, currentStatus: s.value });
     check(`current status "${s.label}" (${s.value}) → accepted`, r.ok && r.data.currentStatus === s.value);
   }
-  check("exactly the 5 required status options", JSON.stringify(AUTHOR_STATUSES.map((s) => s.label)) === JSON.stringify(["Working Professional", "Student", "Researcher", "Independent Researcher", "Other"]));
-  check("lower-case status value is normalised", validateAuthorRegistration({ ...VALID, currentStatus: "independent_researcher" }).ok);
+  check("exactly the 3 required status options", JSON.stringify(AUTHOR_STATUSES.map((s) => s.label)) === JSON.stringify(["Student", "Academician", "Industry Practitioner"]));
+  check("old status no longer accepted for new registrations", !!validateAuthorRegistration({ ...VALID, currentStatus: "RESEARCHER" }).fields?.currentStatus);
+  check("lower-case status value is normalised", validateAuthorRegistration({ ...VALID, currentStatus: "industry_practitioner" }).ok);
   check("unknown status → rejected", validateAuthorRegistration({ ...VALID, currentStatus: "ADMINISTRATOR" }).fields?.currentStatus);
 
   for (const f of ["name", "email", "phone", "organization", "currentStatus", "designation", "location"]) {
@@ -295,7 +296,7 @@ section("SendGrid email: Author confirmation (existing mail pipeline)");
 
 section("Branding");
 check("conference name exactly as specified", CONFERENCE_NAME === "AIDC – ATLAS International Design Conference 2027");
-check("status values match the database ENUM", JSON.stringify(AUTHOR_STATUS_VALUES) === JSON.stringify(["WORKING_PROFESSIONAL", "STUDENT", "RESEARCHER", "INDEPENDENT_RESEARCHER", "OTHER"]));
+check("status values are in the database ENUM (004 + 009)", AUTHOR_STATUS_VALUES.every((v) => ["WORKING_PROFESSIONAL", "STUDENT", "RESEARCHER", "INDEPENDENT_RESEARCHER", "OTHER", "ACADEMICIAN", "INDUSTRY_PRACTITIONER"].includes(v)));
 
 console.log(`\n${failures ? `✗ FAIL — ${failures} check(s) failed.` : "✓ PASS"} — ${total - failures}/${total} checks (external Author registration & Google sign-in)`);
 process.exit(failures ? 1 : 0);
