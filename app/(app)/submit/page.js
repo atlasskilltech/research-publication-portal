@@ -9,6 +9,7 @@ import Textarea from "@/components/ui/Textarea";
 import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
 import { useRole } from "@/components/layout/RoleContext";
+import RefId from "@/components/ui/RefId";
 
 const SCHOOLS = [
   { value: "", label: "Select…" },
@@ -31,6 +32,7 @@ export default function SubmitPage() {
   const [issues, setIssues] = useState({});
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [refId, setRefId] = useState("");
 
   function updateAuthor(i, field, value) {
     setAuthors((prev) => prev.map((a, idx) => (idx === i ? { ...a, [field]: value } : a)));
@@ -73,6 +75,7 @@ export default function SubmitPage() {
         setLoading(false);
         return;
       }
+      setRefId(data.refId || "");
       setDone(true);
     } catch {
       setError("Something went wrong. Please try again.");
@@ -87,6 +90,7 @@ export default function SubmitPage() {
         <Card className="flex flex-col items-center gap-3 px-6 py-12 text-center">
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-ok-soft text-ok"><Icon name="check" size={26} /></span>
           <h2 className="text-lg font-bold text-ink">Your paper was submitted</h2>
+          {refId && <p className="text-sm text-muted">Reference ID: <RefId value={refId} className="text-sm" /> — please quote it in any communication.</p>}
           <p className="max-w-md text-sm text-muted">It is now in <b>SUBMITTED</b> status. An administrator will assign reviewers, and you will be notified by email as it progresses.</p>
           <div className="mt-2 flex gap-2">
             <Button href="/submissions" variant="outline">View my submissions</Button>

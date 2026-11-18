@@ -16,6 +16,7 @@ import DecisionPanel from "@/components/decisions/DecisionPanel";
 import AuthorDecisions from "@/components/decisions/AuthorDecisions";
 import { ACTION_LABEL as SHARED_ACTION_LABEL } from "@/lib/dashboardLogic";
 import { RevisionStatusBadge, TYPE_LABEL } from "@/components/revisions/RevisionStatusBadge";
+import RefId from "@/components/ui/RefId";
 
 const ROLE_OPTS = [
   { value: "SPOC", label: "SPOC" },
@@ -60,7 +61,7 @@ export default function SubmissionDetailPage() {
       <PageHeader
         eyebrow={`Submission · ${paper.viewerRole === "reviewer" && paper.canManage ? "editor" : paper.viewerRole}`}
         title={paper.title}
-        subtitle={<span className="flex items-center gap-2"><Badge>{paper.status}</Badge> <span className="text-xs text-muted">submitted {new Date(paper.createdAt).toLocaleDateString()}</span></span>}
+        subtitle={<span className="flex flex-wrap items-center gap-2"><RefId value={paper.refId} /><Badge>{paper.status}</Badge> <span className="text-xs text-muted">submitted {new Date(paper.createdAt).toLocaleDateString()}</span></span>}
         action={<Button href="/submissions" variant="outline" size="sm">← Back</Button>}
       />
 

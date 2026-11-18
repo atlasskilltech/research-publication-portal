@@ -26,7 +26,7 @@ export async function GET() {
 
     // Reviewer-facing paper fields only (no authors).
     const papers = jrows(await db.query(
-      `SELECT id, title, abstract, keywords, status, current_round, created_at FROM \`${T.papers}\` WHERE id IN (?)`,
+      `SELECT id, ref_id, title, abstract, keywords, status, current_round, created_at FROM \`${T.papers}\` WHERE id IN (?)`,
       [ids],
     ));
     const paperById = new Map(papers.map((p) => [p.id, p]));
@@ -50,6 +50,7 @@ export async function GET() {
         role: a.role,
         assignedAt: a.assigned_at,
         dueAt: a.due_at,
+        refId: p?.ref_id || null,
         title: p?.title || null,
         abstract: p?.abstract || null,
         keywords: p?.keywords || [],

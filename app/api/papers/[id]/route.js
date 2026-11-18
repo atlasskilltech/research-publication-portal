@@ -36,6 +36,7 @@ export async function GET(_request, { params }) {
 
     const base = {
       id: paper.id,
+      refId: paper.ref_id || null,
       title: paper.title,
       abstract: paper.abstract,
       keywords: paper.keywords,

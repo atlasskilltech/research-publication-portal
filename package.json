@@ -27,6 +27,7 @@
     "test:google-first": "node scripts/test-google-first.mjs",
     "test:author-registration": "node scripts/test-author-registration.mjs",
     "test:achievement-logic": "node scripts/test-achievement-logic.mjs",
+    "test:paper-ref": "node scripts/test-paper-ref.mjs",
     "test:email-live": "node --env-file-if-exists=.env.local scripts/test-email-live.mjs",
     "test:e2e-live": "node --env-file-if-exists=.env.local scripts/test-e2e-live.mjs",
     "test:auth-live-app": "node --env-file-if-exists=.env.local scripts/test-auth-live-app.mjs",

@@ -28,7 +28,7 @@ export async function GET() {
   try {
     // Scope: all papers for admins (never their own — an author never manages
     // their paper); otherwise only papers where I am EDITOR.
-    const PAPER_COLS = `SELECT id, title, status, current_round, created_at, updated_at FROM \`${T.papers}\``;
+    const PAPER_COLS = `SELECT id, ref_id, title, status, current_round, created_at, updated_at FROM \`${T.papers}\``;
     let papers;
     if (me.isAdmin) {
       papers = await db.query(`${PAPER_COLS} WHERE submitted_by <> ? ORDER BY updated_at DESC LIMIT 500`, [me.id]);
@@ -88,6 +88,7 @@ export async function GET() {
 
       return {
         id: p.id,
+        refId: p.ref_id || null,
         title: p.title,
         status: p.status,
         round,

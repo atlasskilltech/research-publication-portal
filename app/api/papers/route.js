@@ -19,6 +19,7 @@ import { validatePaperMeta } from "@/lib/validation";
 import { ValidationError } from "@/lib/errors";
 import { validateUpload, newStorageKey, sha256, MAX_BYTES, ALLOWED, requestTooLarge } from "@/lib/manuscriptFiles";
 import { saveManuscript, deleteManuscript, storageErrorReason } from "@/lib/storage";
+import { refPrefix, refYear, nextPaperRef } from "@/lib/paperRef.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,9 +30,9 @@ export async function GET() {
 
   try {
     const papers = me.isAdmin
-      ? await db.query(`SELECT id, title, status, school_code, submitted_by, created_at FROM \`${T.papers}\` ORDER BY created_at DESC`)
+      ? await db.query(`SELECT id, ref_id, title, status, school_code, submitted_by, created_at FROM \`${T.papers}\` ORDER BY created_at DESC`)
       : await db.query(
-        `SELECT id, title, status, school_code, submitted_by, created_at FROM \`${T.papers}\` WHERE submitted_by = ? ORDER BY created_at DESC`,
+        `SELECT id, ref_id, title, status, school_code, submitted_by, created_at FROM \`${T.papers}\` WHERE submitted_by = ? ORDER BY created_at DESC`,
         [me.id],
       ); // submitters: own only
 
@@ -50,6 +51,7 @@ export async function GET() {
 
     const rows = papers.map((p) => ({
       id: p.id,
+      refId: p.ref_id || null,
       title: p.title,
       status: p.status,
       school: p.school_code || null,
@@ -133,12 +135,19 @@ export async function POST(request) {
   }
 
   const paperId = uuid();
+  let refId;
   try {
     await db.transaction(async (tx) => {
+      // Readable reference ID (ISDI-2026-0001 …), minted by the server in THIS
+      // transaction so it is unique and never skipped (lib/paperRef.mjs).
+      refId = await nextPaperRef(tx, {
+        prefix: refPrefix({ baseType: me.baseType, schoolCode: meta.school }),
+        year: refYear(new Date()),
+      });
       await tx.exec(
-        `INSERT INTO \`${T.papers}\` (id, title, abstract, keywords, school_code, status, submitted_by, current_round, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'SUBMITTED', ?, 0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))`,
-        [paperId, meta.title, meta.abstract || "", JSON.stringify(meta.keywords || []), meta.school, me.id],
+        `INSERT INTO \`${T.papers}\` (id, ref_id, title, abstract, keywords, school_code, status, submitted_by, current_round, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, 0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))`,
+        [paperId, refId, meta.title, meta.abstract || "", JSON.stringify(meta.keywords || []), meta.school, me.id],
       );
       await tx.exec(
         `INSERT INTO \`${T.paperAuthors}\` (id, paper_id, full_name, email, affiliation, is_corresponding, author_order, created_at) VALUES ?`,
@@ -160,5 +169,5 @@ export async function POST(request) {
   }
 
   notifyLater("SUBMISSION_RECEIVED", { paperId, actorId: me.id });
-  return NextResponse.json({ ok: true, id: paperId }, { status: 201 });
+  return NextResponse.json({ ok: true, id: paperId, refId }, { status: 201 });
 }

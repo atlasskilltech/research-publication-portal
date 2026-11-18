@@ -11,6 +11,7 @@ import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Modal from "@/components/ui/Modal";
 import Spinner from "@/components/ui/Spinner";
+import RefId from "@/components/ui/RefId";
 
 const ROLE_OPTIONS = [
   { value: "", label: "All roles" }, { value: "STUDENT", label: "Student" }, { value: "FACULTY", label: "Faculty" },
@@ -255,7 +256,7 @@ function UserPapersModal({ user, status, onClose }) {
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <Link href={`/submissions/${p.id}`} className="font-semibold text-ink hover:underline">{p.title}</Link>
-                        <p className="text-xs text-muted" title={p.id}>ID {p.id.slice(0, 8)} · Submitted {fmtDate(p.submittedAt)} · Updated {fmtDate(p.updatedAt)}</p>
+                        <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted" title={p.id}>{p.refId ? <RefId value={p.refId} /> : <>ID {p.id.slice(0, 8)}</>} · Submitted {fmtDate(p.submittedAt)} · Updated {fmtDate(p.updatedAt)}</p>
                       </div>
                       <Badge className={STATUS_CLS[p.status] || STATUS_CLS.SUBMITTED}>{statusLabel(p.status)}</Badge>
                     </div>

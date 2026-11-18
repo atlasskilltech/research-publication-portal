@@ -10,6 +10,7 @@ import Spinner from "@/components/ui/Spinner";
 import EmptyState from "@/components/ui/EmptyState";
 import Table from "@/components/ui/Table";
 import { useRole } from "@/components/layout/RoleContext";
+import RefId from "@/components/ui/RefId";
 
 const REVIEW_STATUS = {
   PENDING: "bg-soft-2 text-muted border-line",
@@ -63,6 +64,7 @@ function ReviewerView() {
                   <Badge className="bg-soft-2 text-muted border-line">{a.paperStatus === "REVISION" ? "Awaiting revision" : a.paperStatus === "SUBMITTED" ? "Not yet open" : "Review closed"}</Badge>
                 )}
               </div>
+              <RefId value={a.refId} className="mb-1" />
               <h2 className="font-display text-lg font-bold text-ink">{a.title}</h2>
               <p className="mt-1 line-clamp-3 text-sm text-muted">{a.abstract || "No abstract."}</p>
               {a.keywords?.length > 0 && (
@@ -133,7 +135,12 @@ function AdminMonitor() {
   const columns = [
     {
       key: "paper", header: "Paper", primary: true,
-      render: (r) => <a href={`/submissions/${r.paperId}`} className="font-semibold text-ink hover:underline">{r.paperTitle || "Untitled"}</a>,
+      render: (r) => (
+        <div className="min-w-0">
+          <a href={`/submissions/${r.paperId}`} className="font-semibold text-ink hover:underline">{r.paperTitle || "Untitled"}</a>
+          {r.paperRefId && <div className="mt-0.5"><RefId value={r.paperRefId} /></div>}
+        </div>
+      ),
     },
     {
       key: "reviewer", header: "Reviewer",

@@ -10,6 +10,7 @@ import Spinner from "@/components/ui/Spinner";
 import Textarea from "@/components/ui/Textarea";
 import EmptyState from "@/components/ui/EmptyState";
 import { DecisionBadge } from "@/components/decisions/DecisionBadge";
+import RefId from "@/components/ui/RefId";
 
 const REC_LABEL = { ACCEPT: "Accept", MINOR_REVISION: "Minor revision", MAJOR_REVISION: "Major revision", REJECT: "Reject" };
 const fmt = (d) => (d ? new Date(d).toLocaleString() : "—");
@@ -86,7 +87,7 @@ export default function ApprovalsBoard({ asChair = false }) {
                 {recent.map((r) => (
                   <div key={r.id} className="flex flex-col gap-1 p-4 text-sm sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <p className="font-semibold text-ink">{r.title}</p>
+                      <p className="flex flex-wrap items-center gap-2 font-semibold text-ink"><RefId value={r.refId} />{r.title}</p>
                       <p className="mt-0.5 text-xs text-muted">Round {r.round + 1} · requested by {r.requestedBy || "—"} · {fmtDay(r.requestedAt)}</p>
                       {r.comment && <p className="mt-1 whitespace-pre-wrap text-xs text-ink">“{r.comment}”</p>}
                     </div>
@@ -134,6 +135,7 @@ function ApprovalCard({ item, onDone }) {
     <Card className="p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
+          <RefId value={paper.refId} />
           <p className="text-lg font-bold text-ink">{paper.title}</p>
           <p className="mt-0.5 text-xs text-muted">
             Round {decision.round + 1}{decision.round > 0 ? ` (revision ${decision.round})` : ""} · sent by {item.requestedBy || "—"} · {fmt(item.requestedAt)}

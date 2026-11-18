@@ -11,6 +11,7 @@ import Spinner from "@/components/ui/Spinner";
 import EmptyState from "@/components/ui/EmptyState";
 import Badge from "@/components/ui/Badge";
 import { useRole } from "@/components/layout/RoleContext";
+import RefId from "@/components/ui/RefId";
 
 const STATUS_CLS = {
   SUBMITTED: "bg-soft-2 text-muted border-line",
@@ -45,7 +46,7 @@ export default function SubmissionsPage() {
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return papers;
-    return papers.filter((p) => p.title.toLowerCase().includes(s) || (p.correspondingAuthor || "").toLowerCase().includes(s));
+    return papers.filter((p) => p.title.toLowerCase().includes(s) || (p.refId || "").toLowerCase().includes(s) || (p.correspondingAuthor || "").toLowerCase().includes(s));
   }, [papers, q]);
 
   return (
@@ -60,7 +61,7 @@ export default function SubmissionsPage() {
       <Card className="mb-5 p-4">
         <div className="relative">
           <Icon name="search" size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <Input placeholder="Search title or corresponding author…" className="pl-9" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search submissions" />
+          <Input placeholder="Search title, reference ID or author…" className="pl-9" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search submissions" />
         </div>
       </Card>
 
@@ -84,7 +85,7 @@ export default function SubmissionsPage() {
               <li key={p.id} className="flex flex-col gap-2 px-4 py-3.5 sm:px-5 md:grid md:grid-cols-[2fr_1fr_0.8fr_0.8fr_auto] md:items-center md:gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-ink">{p.title}</p>
-                  <p className="text-xs text-muted">{p.authorCount} author{p.authorCount === 1 ? "" : "s"}</p>
+                  <p className="flex flex-wrap items-center gap-2 text-xs text-muted"><RefId value={p.refId} />{p.authorCount} author{p.authorCount === 1 ? "" : "s"}</p>
                 </div>
                 <div className="truncate text-sm text-muted">{p.correspondingAuthor || "—"}</div>
                 <div><Badge className={STATUS_CLS[p.status] || STATUS_CLS.SUBMITTED}>{p.status}</Badge></div>

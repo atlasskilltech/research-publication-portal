@@ -43,11 +43,11 @@ export async function GET() {
       [pubs, accepted] = scopeIds
         ? await Promise.all([
             db.query(`SELECT ${PUB_COLS} FROM \`${T.publications}\` WHERE paper_id IN (?) ORDER BY updated_at DESC`, [scopeIds]).then(jrows),
-            db.query(`SELECT id, title, abstract, keywords, status, current_round, updated_at FROM \`${T.papers}\` WHERE status = 'ACCEPTED' AND id IN (?)`, [scopeIds]).then(jrows),
+            db.query(`SELECT id, ref_id, title, abstract, keywords, status, current_round, updated_at FROM \`${T.papers}\` WHERE status = 'ACCEPTED' AND id IN (?)`, [scopeIds]).then(jrows),
           ])
         : await Promise.all([
             db.query(`SELECT ${PUB_COLS} FROM \`${T.publications}\` ORDER BY updated_at DESC`).then(jrows),
-            db.query(`SELECT id, title, abstract, keywords, status, current_round, updated_at FROM \`${T.papers}\` WHERE status = 'ACCEPTED'`).then(jrows),
+            db.query(`SELECT id, ref_id, title, abstract, keywords, status, current_round, updated_at FROM \`${T.papers}\` WHERE status = 'ACCEPTED'`).then(jrows),
           ]);
     }
 
@@ -83,6 +83,7 @@ export async function GET() {
       .filter((p) => (decBy.get(p.id) || []).some((d) => d.decision === "ACCEPT" && d.released_at))
       .map((p) => ({
         paperId: p.id,
+        refId: p.ref_id || null,
         title: p.title,
         acceptedAt: (decBy.get(p.id) || []).find((d) => d.decision === "ACCEPT")?.released_at || p.updated_at,
         defaults: defaultPublicationMeta(p, authBy.get(p.id), msBy.get(p.id)),

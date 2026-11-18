@@ -12,6 +12,7 @@ import Table from "@/components/ui/Table";
 import EmptyState from "@/components/ui/EmptyState";
 import { DecisionBadge } from "@/components/decisions/DecisionBadge";
 import { RevisionStatusBadge } from "@/components/revisions/RevisionStatusBadge";
+import RefId from "@/components/ui/RefId";
 
 const CATEGORY = {
   AWAITING_DECISION: { label: "Awaiting decision", cls: "bg-warn-soft text-warn border-warn/30" },
@@ -81,7 +82,7 @@ export default function EditorialPage() {
       render: (p) => (
         <div className="min-w-0">
           <a href={`/submissions/${p.id}`} className="font-semibold text-ink hover:underline">{p.title}</a>
-          <p className="text-xs text-muted">{String(p.id).slice(0, 8)} · round {p.round + 1}</p>
+          <p className="flex flex-wrap items-center gap-2 text-xs text-muted">{p.refId ? <RefId value={p.refId} /> : String(p.id).slice(0, 8)} <span>round {p.round + 1}</span></p>
         </div>
       ),
     },

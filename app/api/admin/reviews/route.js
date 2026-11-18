@@ -28,7 +28,7 @@ export async function GET() {
     const reviewerIds = [...new Set(assigns.map((a) => a.assignee))];
 
     const [papers, reviews, profMap] = await Promise.all([
-      db.query(`SELECT id, title, status, current_round, submitted_by FROM \`${T.papers}\` WHERE id IN (?)`, [paperIds]),
+      db.query(`SELECT id, ref_id, title, status, current_round, submitted_by FROM \`${T.papers}\` WHERE id IN (?)`, [paperIds]),
       db.query(
         `SELECT paper_id, reviewer, round, status, recommendation, submitted_at, updated_at FROM \`${T.reviews}\` WHERE paper_id IN (?)`,
         [paperIds],
@@ -54,6 +54,7 @@ export async function GET() {
       const reviewStatus = r?.status || "PENDING";
       return {
         paperId: a.paper_id,
+        paperRefId: p?.ref_id || null,
         paperTitle: p?.title || null,
         paperStatus: p?.status || null,
         round: p?.current_round ?? 0,
