@@ -2,14 +2,12 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
-import AuthorRegisterForm from "@/components/auth/AuthorRegisterForm";
-import { CONFERENCE_NAME } from "@/lib/authorRegistration";
 
 const SCHOOLS = [
   { value: "", label: "Select…" },
@@ -37,17 +35,22 @@ export default function RegisterPage() {
   );
 }
 
-// Internal value "author" = the AIDC account type (shown as "AIDC").
-const REGISTER_TYPES = ["student", "faculty", "author"];
-const TYPE_LABEL = { student: "Student", faculty: "Faculty", author: "AIDC" };
+// ATLAS students and faculty only. AIDC (external) registration lives on the
+// home page (/); old /register?type=author|aidc links are forwarded there.
+const REGISTER_TYPES = ["student", "faculty"];
+const TYPE_LABEL = { student: "Student", faculty: "Faculty" };
 
 function RegisterPageInner() {
   const searchParams = useSearchParams();
-  // /register?type=author[&notice=…] — e.g. returning from Google in the Author flow.
+  const router = useRouter();
   const typeParam = searchParams.get("type");
-  const initialType = typeParam === "author" || typeParam === "aidc" ? "author" : "student";
-  const authorNotice = initialType === "author" ? searchParams.get("notice") || "" : "";
-  const [type, setType] = useState(initialType);
+  const toAidc = typeParam === "author" || typeParam === "aidc";
+  useEffect(() => {
+    if (!toAidc) return;
+    const notice = searchParams.get("notice");
+    router.replace(notice ? `/?notice=${encodeURIComponent(notice)}` : "/");
+  }, [toAidc, searchParams, router]);
+  const [type, setType] = useState(typeParam === "faculty" ? "faculty" : "student");
   const [error, setError] = useState("");
   const [issues, setIssues] = useState({});
   const [loading, setLoading] = useState(false);
@@ -63,7 +66,6 @@ function RegisterPageInner() {
   const seqRef = useRef(0); // ignore responses from stale requests
 
   const isStudent = type === "student";
-  const isAuthor = type === "author";
 
   // Debounced, cancellable live check whenever the student's Application Number
   // changes. Stale in-flight requests are aborted and their responses ignored.
@@ -187,17 +189,14 @@ function RegisterPageInner() {
           <>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">Create account</p>
             <h1 className="mt-1 font-display text-3xl font-bold text-ink">Submit your paper</h1>
-            {isAuthor ? (
-              <p className="mt-1 text-sm text-muted">
-                AIDC registration for <b className="text-ink">{CONFERENCE_NAME}</b>. Open to participants from any institution or organization.
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-muted">Create an account to upload your research paper for the 2025–26 publication cycle.</p>
-            )}
+            <p className="mt-1 text-sm text-muted">Create an account to upload your research paper for the 2025–26 publication cycle.</p>
+            <p className="mt-1 text-xs text-muted">
+              External participant (AIDC 2027)? <Link href="/" className="font-semibold text-accent hover:underline">Register for AIDC on the home page →</Link>
+            </p>
 
             <div className="mt-6">
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">I am a</p>
-              <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-line">
+              <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-line">
                 {REGISTER_TYPES.map((t) => (
                   <button key={t} type="button" onClick={() => switchType(t)}
                     className={cn("px-4 py-2.5 text-sm font-semibold transition-colors",
@@ -208,9 +207,7 @@ function RegisterPageInner() {
               </div>
             </div>
 
-            {isAuthor ? (
-              <AuthorRegisterForm notice={authorNotice} />
-            ) : (<>
+            <>
             <form className="mt-5 flex flex-col gap-4" onSubmit={onSubmit}>
               <Input label="Full name" name="name" placeholder="Anushi Shah" required error={issues.name} />
               <Input label="ATLAS email" name="email" type="email" placeholder="you@atlasuniversity.edu.in" hint="The email of your ATLAS Google account (any ATLAS domain). You'll sign in with Google." required error={issues.email} />
@@ -254,7 +251,7 @@ function RegisterPageInner() {
               Already have an account?{" "}
               <Link href="/login" className="font-semibold text-accent hover:underline">Sign in →</Link>
             </p>
-            </>)}
+            </>
           </>
         )}
       </div>

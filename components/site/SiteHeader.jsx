@@ -2,17 +2,11 @@ import Link from "next/link";
 import BrandLogo from "@/components/layout/BrandLogo";
 
 /**
- * Header shared by every public page: the landing page (/) and the published
- * research catalogue (/publications/…). Section links point at the landing
- * page (/#policy …) so they work from any public page.
+ * Header shared by every public page: the home page (/ — AIDC registration),
+ * sign-in / register, and the published research catalogue (/publications/…).
+ * The Research Promotion Policy is internal (faculty & admins) and lives inside
+ * the portal at /research-policy, so it is not linked here.
  */
-export const SITE_NAV = [
-  ["/#policy", "Policy"],
-  ["/#incentives", "Incentives"],
-  ["/#conferences", "Conference support"],
-  ["/#seed-funding", "Seed funding"],
-  ["/#guidelines", "Guidelines"],
-];
 
 function Arrow({ size = 16 }) {
   return (
@@ -55,11 +49,6 @@ export default function SiteHeader({ signedIn = false, active = null }) {
     <header className="sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
         <Link href="/" aria-label="ATLAS Research — home"><BrandLogo /></Link>
-        <nav className="hidden items-center gap-6 text-sm lg:flex" aria-label="Sections">
-          {SITE_NAV.map(([href, label]) => (
-            <a key={href} href={href} className="font-medium text-muted transition hover:text-ink">{label}</a>
-          ))}
-        </nav>
         <div className="flex items-center gap-2 sm:gap-3">
           <Link
             href="/publications"

@@ -42,6 +42,12 @@ function NavLinks({ onNavigate }) {
     items.push({ label: "My Achievements", href: "/achievements", icon: "award" });
   }
 
+  // Research Promotion Policy — internal: faculty and administrators only
+  // (not students, not external AIDC accounts). The page re-checks server-side.
+  if ((realRole === "faculty" || realRole === "administrator") && !items.some((i) => i.href === "/research-policy")) {
+    items.push({ label: "Research Policy", href: "/research-policy", icon: "shield" });
+  }
+
   // Highlight only the most specific match (so /publications/manage doesn't
   // also light up "Published" at /publications).
   const matches = (href) => pathname === href || pathname.startsWith(href + "/");

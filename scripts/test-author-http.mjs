@@ -247,9 +247,12 @@ async function main() {
   // covered with real RS256 tokens in scripts/test-author-registration.mjs.
 
   console.log("\nPages:");
-  const reg = await h.browser().req("/register?type=author");
+  const reg = await h.browser().req("/register");
   const regHtml = await reg.text();
-  check("/register renders the Student / Faculty / Author choice", reg.status === 200 && /student/i.test(regHtml) && /faculty/i.test(regHtml) && /author/i.test(regHtml));
+  check("/register renders the Student / Faculty choice (no AIDC tab)", reg.status === 200 && /student/i.test(regHtml) && /faculty/i.test(regHtml) && !/>AIDC</.test(regHtml));
+  const home = await h.browser().req("/");
+  const homeHtml = await home.text();
+  check("/ (home) renders the AIDC registration form", home.status === 200 && /AIDC 2027/.test(homeHtml) && /name="organization"/.test(homeHtml));
   const login = await h.browser().req("/login");
   const loginHtml = await login.text();
   check("/login has EXACTLY ONE Google sign-in form", (loginHtml.match(/action="\/auth\/google"/g) || []).length === 1);

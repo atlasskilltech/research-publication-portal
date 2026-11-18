@@ -70,12 +70,17 @@ function SectionHead({ eyebrow, title, intro, center = false }) {
   );
 }
 
-export default function LandingPage({ signedIn = false }) {
+/**
+ * `embedded` = shown INSIDE the portal (/research-policy, faculty & admins
+ * only): no public header/footer, and the calls to action point at portal
+ * pages instead of sign-in.
+ */
+export default function LandingPage({ signedIn = false, embedded = false }) {
   const year = POLICY_META.year.replace("Academic Year ", "AY ");
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className={embedded ? "bg-canvas" : "min-h-screen bg-canvas"}>
       {/* ================= Header ================= */}
-      <SiteHeader signedIn={signedIn} />
+      {!embedded && <SiteHeader signedIn={signedIn} />}
 
       <main>
         {/* ================= Hero ================= */}
@@ -98,7 +103,11 @@ export default function LandingPage({ signedIn = false }) {
                 rewarded and celebrated at ATLAS SkillTech University.
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-3">
-                <LoginButton signedIn={signedIn} size="lg" />
+                {embedded ? (
+                  <Link href="/achievements" className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-6 py-3 text-[15px] font-semibold text-white shadow-sm transition hover:bg-brand-light">
+                    Record an achievement <Ico name="arrow" size={16} />
+                  </Link>
+                ) : <LoginButton signedIn={signedIn} size="lg" />}
                 <a href="#incentives" className="inline-flex items-center gap-2 rounded-lg border border-line bg-white px-6 py-3 text-[15px] font-semibold text-ink transition hover:border-brand/40 hover:bg-soft">
                   View incentives
                 </a>
@@ -312,20 +321,20 @@ export default function LandingPage({ signedIn = false }) {
               Submit your research and track every stage.
             </h2>
             <p className="relative mx-auto mt-3 max-w-xl text-[15px] text-white/80">
-              Sign in to submit papers, follow reviews and decisions, and manage your publications.
+              {embedded ? "Submit papers, follow reviews and decisions, and manage your publications." : "Sign in to submit papers, follow reviews and decisions, and manage your publications."}
             </p>
             <Link
-              href={signedIn ? "/dashboard" : "/login"}
+              href={embedded ? "/submit" : signedIn ? "/dashboard" : "/login"}
               className="relative mt-7 inline-flex items-center gap-2 rounded-lg bg-white px-6 py-3 text-[15px] font-semibold text-brand shadow-sm transition hover:bg-brand-50"
             >
-              {signedIn ? "Open dashboard" : "Login to the portal"} <Ico name="arrow" size={16} />
+              {embedded ? "Submit a paper" : signedIn ? "Open dashboard" : "Login to the portal"} <Ico name="arrow" size={16} />
             </Link>
           </div>
         </section>
       </main>
 
       {/* ================= Footer ================= */}
-      <SiteFooter />
+      {!embedded && <SiteFooter />}
     </div>
   );
 }

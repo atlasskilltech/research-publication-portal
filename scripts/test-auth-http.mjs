@@ -42,7 +42,7 @@ async function main() {
   { const r = await br.api("/api/admin/users"); check("admin API /api/admin/users → 200 with users", r.status === 200 && Array.isArray(r.data?.users)); }
 
   console.log("  — route regression smoke —");
-  { const r = await br.req("/"); const html = await r.text(); check("GET / → public landing page (Research Promotion Policy) with a Login link to /login", r.status === 200 && /Research Promotion Policy/.test(html) && /href="\/login"/.test(html), `HTTP ${r.status}`); }
+  { const r = await br.req("/"); const html = await r.text(); check("GET / → public home page (AIDC registration) with Login and Register links", r.status === 200 && /AIDC 2027/.test(html) && /href="\/login"/.test(html) && /href="\/register"/.test(html), `HTTP ${r.status}`); }
   for (const route of ["/dashboard", "/users", "/activity", "/submit", "/submissions", "/reviews", "/revisions", "/editorial", "/publications/manage", "/import"]) {
     const r = await br.req(route);
     check(`GET ${route} → 200`, r.status === 200, `HTTP ${r.status}`);
