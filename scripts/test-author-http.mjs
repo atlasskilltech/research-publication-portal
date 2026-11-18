@@ -250,16 +250,16 @@ async function main() {
   const reg = await h.browser().req("/register");
   const regHtml = await reg.text();
   check("/register renders the Student / Faculty choice (no AIDC tab)", reg.status === 200 && /student/i.test(regHtml) && /faculty/i.test(regHtml) && !/>AIDC</.test(regHtml));
-  const home = await h.browser().req("/");
+  const home = await h.browser().req("/aidc/register");
   const homeHtml = await home.text();
-  check("/ (home) renders the AIDC registration form", home.status === 200 && /AIDC 2027/.test(homeHtml) && /name="organization"/.test(homeHtml));
+  check("/aidc/register renders the AIDC registration form", home.status === 200 && /AIDC 2027/.test(homeHtml) && /name="organization"/.test(homeHtml));
   const login = await h.browser().req("/login");
   const loginHtml = await login.text();
   check("/login has EXACTLY ONE Google sign-in form", (loginHtml.match(/action="\/auth\/google"/g) || []).length === 1);
   check("…\"Sign in with Google\", no Author Google button, no intent field", /Sign in with Google/.test(loginHtml) && !/Author sign-in with Google/.test(loginHtml) && !/name="intent"/.test(loginHtml));
   check("…clearly says Google Sign-In is not available for AIDC accounts", /Google Sign-In is not available for AIDC accounts/.test(loginHtml));
   check("…separate Author email + password sign-in section", /id="author-signin"/.test(loginHtml) && /AIDC sign-in/.test(loginHtml) && /name="password"/.test(loginHtml));
-  check("…Register link (header) and Forgot password link present", /href="\/register"/.test(loginHtml) && /href="\/auth\/forgot-password"/.test(loginHtml));
+  check("…Register links (/register, /aidc/register) and Forgot password link present", /href="\/register"/.test(loginHtml) && /href="\/aidc\/register"/.test(loginHtml) && /href="\/auth\/forgot-password"/.test(loginHtml));
   const nt = await (await h.browser().req("/login?notice=author_google_disabled")).text();
   check("…Author Google refusal notice renders", /Google Sign-In is not available for Author accounts/.test(nt));
 

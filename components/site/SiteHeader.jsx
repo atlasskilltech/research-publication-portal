@@ -2,7 +2,7 @@ import Link from "next/link";
 import BrandLogo from "@/components/layout/BrandLogo";
 
 /**
- * Header shared by every public page: the home page (/ — AIDC registration),
+ * Header shared by every public page: / and /aidc (coming soon), /aidc/register,
  * sign-in / register, and the published research catalogue (/publications/…).
  * The Research Promotion Policy is internal (faculty & admins) and lives inside
  * the portal at /research-policy, so it is not linked here.
@@ -29,37 +29,17 @@ export function LoginButton({ signedIn, size = "md", label, className = "" }) {
   );
 }
 
-/** "Register" — outline button next to Login (hidden once signed in). */
-function RegisterButton({ active }) {
-  return (
-    <Link
-      href="/register"
-      aria-current={active ? "page" : undefined}
-      className={`inline-flex items-center justify-center rounded-lg border px-3 py-2 text-sm font-semibold transition hover:bg-soft sm:px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${active ? "border-brand text-brand" : "border-line bg-white text-ink"}`}
-    >
-      Register
-    </Link>
-  );
-}
-
-/** `active` = "publications" | "register" | "login" highlights that link. */
+/**
+ * Public header: the logo only, for now (no Publications / Register / Login
+ * buttons). Sign-in is at /login, which links to /register and /aidc/register.
+ * Props are accepted (and ignored) so existing callers keep working.
+ */
+// eslint-disable-next-line no-unused-vars
 export default function SiteHeader({ signedIn = false, active = null }) {
-  const pubActive = active === "publications";
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
         <Link href="/" aria-label="ATLAS Research — home"><BrandLogo /></Link>
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Link
-            href="/publications"
-            aria-current={pubActive ? "page" : undefined}
-            className={`text-sm font-medium hover:text-ink ${pubActive ? "inline text-ink" : "hidden text-muted sm:inline"}`}
-          >
-            Publications
-          </Link>
-          {!signedIn && <RegisterButton active={active === "register"} />}
-          <LoginButton signedIn={signedIn} />
-        </div>
       </div>
     </header>
   );

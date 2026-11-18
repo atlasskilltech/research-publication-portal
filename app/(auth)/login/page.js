@@ -1,8 +1,6 @@
 import Link from "next/link";
-import Image from "next/image";
 import LoginForm from "@/components/auth/LoginForm";
 import FragmentScrubber from "@/components/auth/FragmentScrubber";
-import { BRAND } from "@/lib/constants";
 import { safeNextPath } from "@/lib/authFlow";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import { GOOGLE_NOTICES } from "@/lib/authNotices";
@@ -33,9 +31,9 @@ export default async function LoginPage({ searchParams }) {
   const notice = Object.hasOwn(NOTICES, sp.notice) ? NOTICES[sp.notice] : null;
   const next = safeNextPath(sp.callbackUrl);
   return (
-    <div className="min-h-[calc(100vh-61px)] lg:grid lg:grid-cols-2">
+    <div className="lg:grid lg:grid-cols-2">
       {/* ---- Hero (desktop) ---- */}
-      <aside className="relative hidden overflow-hidden border-r border-line p-10 lg:flex lg:flex-col lg:justify-between lg:gap-10">
+      <aside className="relative hidden overflow-hidden border-r border-line p-10 lg:flex lg:flex-col lg:justify-center">
         <div className="orbit left-[-120px] top-[120px] h-[520px] w-[520px]" aria-hidden="true" />
         <div className="orbit left-[-40px] top-[260px] h-[360px] w-[360px]" aria-hidden="true" />
         <span className="absolute bottom-[-40px] left-[120px] h-40 w-40 rounded-full bg-[#c7d84a]/70 blur-[1px]" aria-hidden="true" />
@@ -56,18 +54,6 @@ export default async function LoginPage({ searchParams }) {
               </li>
             ))}
           </ol>
-        </div>
-
-        <div className="relative z-10 flex items-center justify-between gap-4">
-          <Image
-            src="/brand/atlas-4-schools-horizontal.svg"
-            alt="ATLAS SkillTech University — ISDI, ISME, uGDX and Law"
-            width={1064}
-            height={111}
-            className="h-7 w-auto"
-            unoptimized
-          />
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">© {BRAND.university}</p>
         </div>
       </aside>
 
@@ -107,6 +93,20 @@ export default async function LoginPage({ searchParams }) {
             <p className="mt-2 text-xs text-muted">
               Students, faculty and staff who have created a password can also sign in here.
             </p>
+            <p className="mt-3 border-t border-line pt-3 text-xs text-muted">
+              Not registered for {CONFERENCE_SHORT} yet?{" "}
+              <Link href="/aidc/register" className="font-semibold text-accent hover:underline">Register for AIDC →</Link>
+            </p>
+          </div>
+
+          {/* Registration for the research portal (ATLAS students & faculty). */}
+          <div className="mt-6 flex flex-col gap-3 rounded-xl border border-line bg-soft/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted">
+              <b className="text-ink">New to the portal?</b> ATLAS students and faculty, create your account.
+            </p>
+            <Link href="/register" className="inline-flex shrink-0 items-center justify-center rounded-lg border border-brand bg-white px-4 py-2 text-sm font-semibold text-brand transition hover:bg-brand-50">
+              Register →
+            </Link>
           </div>
         </div>
       </section>

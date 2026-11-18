@@ -35,8 +35,8 @@ export default function RegisterPage() {
   );
 }
 
-// ATLAS students and faculty only. AIDC (external) registration lives on the
-// home page (/); old /register?type=author|aidc links are forwarded there.
+// ATLAS students and faculty only. AIDC (external) registration lives at
+// /aidc/register; old /register?type=author|aidc links are forwarded there.
 const REGISTER_TYPES = ["student", "faculty"];
 const TYPE_LABEL = { student: "Student", faculty: "Faculty" };
 
@@ -48,7 +48,7 @@ function RegisterPageInner() {
   useEffect(() => {
     if (!toAidc) return;
     const notice = searchParams.get("notice");
-    router.replace(notice ? `/?notice=${encodeURIComponent(notice)}` : "/");
+    router.replace(notice ? `/aidc/register?notice=${encodeURIComponent(notice)}` : "/aidc/register");
   }, [toAidc, searchParams, router]);
   const [type, setType] = useState(typeParam === "faculty" ? "faculty" : "student");
   const [error, setError] = useState("");
@@ -191,7 +191,7 @@ function RegisterPageInner() {
             <h1 className="mt-1 font-display text-3xl font-bold text-ink">Submit your paper</h1>
             <p className="mt-1 text-sm text-muted">Create an account to upload your research paper for the 2025–26 publication cycle.</p>
             <p className="mt-1 text-xs text-muted">
-              External participant (AIDC 2027)? <Link href="/" className="font-semibold text-accent hover:underline">Register for AIDC on the home page →</Link>
+              External participant (AIDC 2027)? <Link href="/aidc/register" className="font-semibold text-accent hover:underline">Register for AIDC →</Link>
             </p>
 
             <div className="mt-6">

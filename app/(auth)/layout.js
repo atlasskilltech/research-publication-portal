@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/session";
 import SiteHeader from "@/components/site/SiteHeader";
+import SiteFooter from "@/components/site/SiteFooter";
 
 /**
  * Layout for the signed-out routes (/login, /register).
@@ -18,11 +19,12 @@ export default async function AuthLayout({ children }) {
   const user = await getSessionUser();
   if (user) redirect("/dashboard");
 
-  // Same header as the landing page (Login / Register live there now).
+  // Common public header + footer (same as every public page).
   return (
-    <div className="min-h-screen bg-white">
+    <div className="flex min-h-screen flex-col bg-white">
       <SiteHeader />
-      {children}
+      <div className="flex-1">{children}</div>
+      <SiteFooter />
     </div>
   );
 }

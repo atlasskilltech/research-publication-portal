@@ -16,7 +16,7 @@ const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const APP_PREFIXES = [
   "/dashboard", "/papers", "/submissions", "/submit", "/reviews", "/revisions", "/editorial",
   "/publications/manage", "/activity", "/users", "/volumes", "/archive", "/import", "/account", "/statistics", "/approvals",
-  "/achievements",
+  "/achievements", "/research-policy",
 ];
 
 function allowedOrigins(request) {
@@ -62,6 +62,6 @@ export const config = {
     "/dashboard/:path*", "/papers/:path*", "/submissions/:path*", "/submit/:path*", "/reviews/:path*",
     "/revisions/:path*", "/editorial/:path*", "/publications/manage/:path*", "/activity/:path*",
     "/users/:path*", "/volumes/:path*", "/archive/:path*", "/import/:path*", "/statistics/:path*",
-    "/approvals/:path*", "/achievements/:path*",
+    "/approvals/:path*", "/achievements/:path*", "/research-policy/:path*",
   ],
 };
