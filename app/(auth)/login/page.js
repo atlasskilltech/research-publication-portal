@@ -93,10 +93,6 @@ export default async function LoginPage({ searchParams }) {
             <p className="mt-2 text-xs text-muted">
               Students, faculty and staff who have created a password can also sign in here.
             </p>
-            <p className="mt-3 border-t border-line pt-3 text-xs text-muted">
-              Not registered for {CONFERENCE_SHORT} yet?{" "}
-              <Link href="/aidc/register" className="font-semibold text-accent hover:underline">Register for AIDC →</Link>
-            </p>
           </div>
 
           {/* Registration for the research portal (ATLAS students & faculty). */}

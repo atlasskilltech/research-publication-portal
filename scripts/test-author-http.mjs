@@ -259,7 +259,7 @@ async function main() {
   check("…\"Sign in with Google\", no Author Google button, no intent field", /Sign in with Google/.test(loginHtml) && !/Author sign-in with Google/.test(loginHtml) && !/name="intent"/.test(loginHtml));
   check("…clearly says Google Sign-In is not available for AIDC accounts", /Google Sign-In is not available for AIDC accounts/.test(loginHtml));
   check("…separate Author email + password sign-in section", /id="author-signin"/.test(loginHtml) && /AIDC sign-in/.test(loginHtml) && /name="password"/.test(loginHtml));
-  check("…Register links (/register, /aidc/register) and Forgot password link present", /href="\/register"/.test(loginHtml) && /href="\/aidc\/register"/.test(loginHtml) && /href="\/auth\/forgot-password"/.test(loginHtml));
+  check("…Register link (/register) and Forgot password link present, no AIDC register link", /href="\/register"/.test(loginHtml) && !/href="\/aidc\/register"/.test(loginHtml) && /href="\/auth\/forgot-password"/.test(loginHtml));
   const nt = await (await h.browser().req("/login?notice=author_google_disabled")).text();
   check("…Author Google refusal notice renders", /Google Sign-In is not available for Author accounts/.test(nt));
 
