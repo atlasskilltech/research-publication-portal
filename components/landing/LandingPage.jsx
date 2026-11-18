@@ -1,6 +1,6 @@
 import Link from "next/link";
-import Image from "next/image";
-import BrandLogo from "@/components/layout/BrandLogo";
+import SiteHeader, { LoginButton } from "@/components/site/SiteHeader";
+import SiteFooter from "@/components/site/SiteFooter";
 import {
   POLICY_META, PREAMBLE, OBJECTIVES, INCENTIVE_NOTE, INCENTIVES, HIGHLIGHTS, CONFERENCE_INTRO, CONFERENCE_CONDITIONS,
   CONFERENCE_SUPPORT, SEED_FUNDING, SEED_USES, GUIDELINES, APPLY_STEPS, ANNEXURE_FIELDS,
@@ -15,7 +15,6 @@ import {
  * backgrounds layered OVER a brand gradient, so the section still looks
  * finished if an image is slow or blocked.
  */
-const LOCKUP_W = 2004; const LOCKUP_H = 1029; // public/brand/atlas-lockup-indigo.svg viewBox
 const photo = (id, w = 1400) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=70`;
 const PHOTOS = {
   hero: photo("photo-1532094349884-543bc11b234d"), // laboratory research
@@ -61,14 +60,6 @@ function Ico({ name, size = 20, className = "" }) {
   );
 }
 
-const NAV = [
-  ["#policy", "Policy"],
-  ["#incentives", "Incentives"],
-  ["#conferences", "Conference support"],
-  ["#seed-funding", "Seed funding"],
-  ["#guidelines", "Guidelines"],
-];
-
 function SectionHead({ eyebrow, title, intro, center = false }) {
   return (
     <div className={center ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}>
@@ -79,37 +70,12 @@ function SectionHead({ eyebrow, title, intro, center = false }) {
   );
 }
 
-function LoginButton({ signedIn, size = "md", className = "" }) {
-  const pad = size === "lg" ? "px-6 py-3 text-[15px]" : "px-4 py-2 text-sm";
-  return (
-    <Link
-      href={signedIn ? "/dashboard" : "/login"}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg bg-brand font-semibold text-white shadow-sm transition hover:bg-brand-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${pad} ${className}`}
-    >
-      {signedIn ? "Open dashboard" : "Login"} <Ico name="arrow" size={16} />
-    </Link>
-  );
-}
-
 export default function LandingPage({ signedIn = false }) {
   const year = POLICY_META.year.replace("Academic Year ", "AY ");
   return (
     <div className="min-h-screen bg-canvas">
       {/* ================= Header ================= */}
-      <header className="sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <Link href="/" aria-label="ATLAS Research — home"><BrandLogo /></Link>
-          <nav className="hidden items-center gap-6 text-sm lg:flex" aria-label="Sections">
-            {NAV.map(([href, label]) => (
-              <a key={href} href={href} className="font-medium text-muted transition hover:text-ink">{label}</a>
-            ))}
-          </nav>
-          <div className="flex items-center gap-3">
-            <Link href="/publications" className="hidden text-sm font-medium text-muted hover:text-ink sm:inline">Publications</Link>
-            <LoginButton signedIn={signedIn} />
-          </div>
-        </div>
-      </header>
+      <SiteHeader signedIn={signedIn} />
 
       <main>
         {/* ================= Hero ================= */}
@@ -359,14 +325,7 @@ export default function LandingPage({ signedIn = false }) {
       </main>
 
       {/* ================= Footer ================= */}
-      <footer className="border-t border-line bg-white">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-6 sm:flex-row sm:px-6">
-          <Image src="/brand/atlas-lockup-indigo.svg" alt="ATLAS SkillTech University" width={LOCKUP_W} height={LOCKUP_H} className="h-9 w-auto" unoptimized />
-          <p className="text-center text-xs text-muted">
-            {POLICY_META.title} · {POLICY_META.year} · Effective from {POLICY_META.effectiveFrom} · © ATLAS SkillTech University, Mumbai
-          </p>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

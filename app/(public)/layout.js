@@ -1,27 +1,23 @@
-import Link from "next/link";
+import SiteHeader from "@/components/site/SiteHeader";
+import SiteFooter from "@/components/site/SiteFooter";
+import { getSessionUser } from "@/lib/session";
 
-// Public (no sign-in) layout for the published-research catalogue.
+// Public (no sign-in) layout for the published-research catalogue. Uses the
+// same header and footer as the landing page (components/site/).
 export const metadata = {
   title: "Publications — ATLAS SkillTech University Research Publication Portal",
   description: "Browse published research from ATLAS SkillTech University.",
 };
 
-export default function PublicLayout({ children }) {
+export default async function PublicLayout({ children }) {
+  // A signed-in visitor gets "Open dashboard" instead of "Login" (same as /).
+  let signedIn = false;
+  try { signedIn = !!(await getSessionUser()); } catch { signedIn = false; }
   return (
-    <div className="min-h-screen bg-soft">
-      <header className="border-b border-line bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-          <Link href="/publications" className="font-display text-lg font-bold text-brand">ATLAS Research Publications</Link>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link href="/publications" className="font-semibold text-ink hover:underline">Browse</Link>
-            <Link href="/login" className="text-muted hover:text-ink">Sign in</Link>
-          </nav>
-        </div>
-      </header>
-      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
-      <footer className="border-t border-line bg-white py-6 text-center text-xs text-muted">
-        ATLAS SkillTech University · Research Publication Portal
-      </footer>
+    <div className="flex min-h-screen flex-col bg-canvas">
+      <SiteHeader signedIn={signedIn} active="publications" />
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">{children}</main>
+      <SiteFooter />
     </div>
   );
 }
