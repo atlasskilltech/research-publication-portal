@@ -40,6 +40,8 @@
     "test:mysql": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-mysql-integration.mjs",
     "test:author-mysql": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-author-mysql.mjs",
     "test:paper-stats": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-paper-stats-mysql.mjs",
+    "test:agent-api": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-agent-api.mjs",
+    "test:agent-api-http": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-agent-api-http.mjs",
     "achievements:import": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/import-achievements.mjs",
     "test:achievement-import": "node scripts/test-achievement-import.mjs",
     "storage:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/storage-check.mjs",
