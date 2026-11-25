@@ -19,6 +19,8 @@ import { createApiKey, listApiKeys, revokeApiKey, validateNewKey, accessLabel, h
 import { createAgentApi, createKeyRateLimiter, SPEC } from "../lib/agentApi/handler.mjs";
 
 let failures = 0, total = 0;
+const READ_IDS = ["list_submissions", "get_submission", "submission_stats", "whoami", "list_review_assignments", "list_revisions", "list_decisions",
+  "list_approvals", "list_publications", "list_volumes", "list_achievements", "achievement_stats", "list_activity", "list_users", "registration_stats"];
 const check = (label, ok, detail = "") => { total++; console.log(`  ${ok ? "✓" : "✗"} ${label}${detail ? " — " + detail : ""}`); if (!ok) failures++; };
 const section = (t) => console.log(`\n${t}`);
 
@@ -117,17 +119,17 @@ try {
   // ---- Manifest -------------------------------------------------------------------
   section("Manifest:");
   r = await call(api, "GET", "/manifest", { key: ro.key });
-  check("read-only key → 200, spec + project", r.status === 200 && r.body.spec === SPEC && r.body.project.name === "ATLAS Research" && r.body.project.version === "1.0");
+  check("read-only key → 200, spec + project", r.status === 200 && r.body.spec === SPEC && r.body.project.name === "ATLAS Research" && r.body.project.version === "1.1");
   check('key block: name, access "Read only", expiresAt null', r.body.key.name === "Read key" && r.body.key.access === "Read only" && r.body.key.expiresAt === null);
   const roIds = r.body.actions.map((a) => a.id);
-  check("read-only key lists ONLY the read actions", roIds.join() === "list_submissions,get_submission,submission_stats", roIds.join());
+  check("read-only key lists ONLY the read actions (all 15)", roIds.length === READ_IDS.length && READ_IDS.every((id) => roIds.includes(id)) && r.body.actions.every((a) => a.risk === "read" && a.method === "GET"), roIds.join());
   const allowedTop = ["id", "name", "description", "method", "path", "risk", "params"];
   const allowedParam = ["name", "in", "type", "required", "enum", "description"];
   check("action + param shapes follow the spec exactly (no internal fields)",
     r.body.actions.every((a) => Object.keys(a).every((k) => allowedTop.includes(k)) && /^[a-z0-9_]+$/.test(a.id) && ["GET", "POST"].includes(a.method) && ["read", "write"].includes(a.risk)
       && a.params.every((p) => Object.keys(p).every((k) => allowedParam.includes(k)) && ["path", "query", "body"].includes(p.in) && ["string", "number", "integer", "boolean"].includes(p.type))));
   r = await call(api, "GET", "/manifest", { key: rw.key });
-  check('read+write key: access "Read and write", all 5 actions', r.body.key.access === "Read and write" && r.body.actions.length === 5);
+  check('read+write key: access "Read and write", all 17 actions', r.body.key.access === "Read and write" && r.body.actions.length === READ_IDS.length + 2);
   check("write actions are POST / risk write; body params only on POST", r.body.actions.filter((a) => a.risk === "write").every((a) => a.method === "POST") && r.body.actions.filter((a) => a.method === "GET").every((a) => a.params.every((p) => p.in !== "body")));
   check("no delete actions exposed", !r.body.actions.some((a) => /delete|remove|password|export/i.test(a.id)));
   r = await call(api, "GET", "/manifest", { key: wo.key });

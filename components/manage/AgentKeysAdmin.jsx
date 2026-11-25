@@ -120,7 +120,7 @@ export default function AgentKeysAdmin({ apiUrl }) {
       <PageHeader
         eyebrow="Administration"
         title="IntelligenceOS keys"
-        subtitle="API keys that let ATLAS IntelligenceOS agents read submissions and, if allowed, add notes or change status. Each key is shown only once."
+        subtitle="API keys that let ATLAS IntelligenceOS agents read portal data and, if allowed, add notes or change status. Each key is shown only once."
         action={<Button onClick={openCreate} disabled={loading}>Create key</Button>}
       />
 
@@ -133,6 +133,13 @@ export default function AgentKeysAdmin({ apiUrl }) {
           <code className="break-all rounded-lg bg-soft-2 px-3 py-1.5 text-sm text-ink">{apiUrl}</code>
           <Button size="sm" variant="outline" onClick={() => copy(apiUrl)}>Copy URL</Button>
         </div>
+        <p className="mt-3 text-sm text-ink">
+          Tick <strong>“This project acts as the signed-in user”</strong> so each person only gets what their portal role allows
+          (their own papers, papers assigned to them, or everything for an administrator). Their IntelligenceOS email must match their portal email.
+        </p>
+        <p className="mt-1 text-xs text-muted">
+          With this on, the key can act as any portal user, so keep it only in IntelligenceOS, give it an expiry and revoke it if in doubt.
+        </p>
       </Card>
 
       <Card>
