@@ -7,6 +7,7 @@
 // involved, and every request must carry a valid key.
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { programChairEmails } from "@/lib/config/env";
 import { createAgentApi, MAX_BODY_CHARS } from "@/lib/agentApi/handler.mjs";
 
 export const runtime = "nodejs";
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
 const KEY = Symbol.for("rpp.agentApi.handler");
 const handler = () => (globalThis[KEY] ||= createAgentApi({
   db,
+  // Program Chair = PROGRAM_CHAIR role + allowlisted email, re-read on every request.
+  chairEmails: programChairEmails,
   onError: (where, e) => console.error(`agent-api ${where}:`, e?.code || e?.message),
 }));
 
